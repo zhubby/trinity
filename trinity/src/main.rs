@@ -1,6 +1,6 @@
 //! Trinity — Application entry point
 //!
-//! The application starts as a **background daemon** — no window is shown.
+//! The application starts with the settings panel visible.
 //! A system tray icon appears in the OS status bar with a menu:
 //! - "Show Settings Panel" → opens the settings window
 //! - "Exit" → quits the application
@@ -53,22 +53,24 @@ fn main() {
     trinity_clipboard::init();
     trinity_dictation::init();
 
-    // Launch the daemon — invisible main viewport + system tray
+    // Launch the daemon — settings root viewport + system tray
     launch_daemon();
 }
 
 fn launch_daemon() {
     let (width, height) = trinity_util::cfg::get_window_size();
     // The root viewport is the settings panel. It starts hidden and is shown
-    // from the tray; closing it hides the panel instead of exiting the daemon.
+    // from the tray; close hides it instead of exiting the daemon.
     let viewport = egui::ViewportBuilder::default()
         .with_title("Trinity Settings")
         .with_inner_size([width, height])
-        .with_resizable(true)
-        .with_visible(false);
+        .with_position([100.0, 100.0])
+        .with_decorations(true)
+        .with_resizable(true);
 
     let native_options = eframe::NativeOptions {
         viewport,
+        persist_window: false,
         ..Default::default()
     };
 

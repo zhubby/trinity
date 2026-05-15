@@ -5,7 +5,12 @@
 ### Changed
 - Package renamed from `trinity-gui` to `trinity` (directory `trinity/`).
 - Settings and translator viewports now track close requests independently so each window can be closed and reopened without affecting the other.
-- The settings panel is now the root viewport; the daemon hides it on startup and shows it from the tray.
+- The settings panel is now the root viewport and is shown on startup.
+- Window position persistence is disabled so previously hidden/off-screen panel positions do not affect startup visibility.
+- macOS no longer switches the app to accessory activation policy when the settings panel is visible.
+- Global hotkeys and mouse-listener startup are deferred until the settings panel is hidden, keeping the startup panel responsive.
+- The root viewport is explicitly made visible from `App::logic()` to work around eframe's hidden-first-frame native startup behavior.
+- macOS tray menu actions now wake the egui context before restoring the settings window from its hidden off-screen state.
 - Translator popup remains a secondary viewport triggered by hotkeys or selection translation.
 
 ### Fixed
@@ -13,6 +18,7 @@
 - macOS tray status item and menu delegate are retained for the lifetime of the app, preventing the menu bar icon from disappearing after startup.
 - Settings and translator viewports are opened from the root `ui()` path again, avoiding freezes from creating child viewports inside `App::logic()`.
 - Settings panel close requests now hide the root viewport instead of exiting the daemon.
+- The settings panel close button now parks the root viewport off-screen instead of exiting the daemon.
 
 ### Added
 - CLI argument `--log-level` via `clap` (default: `debug`). Supported levels: off, error, warn, info, debug, trace.

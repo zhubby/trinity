@@ -154,7 +154,7 @@ unsafe fn show_context_menu(hwnd: HWND) {
 /// 2. Registers a Shell_NotifyIcon tray icon
 /// 3. Runs a message loop for tray events
 /// 4. Forward events to the returned `Receiver<TrayEvent>`
-pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
+pub fn create_tray(_ctx: egui::Context, _tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let (tx, rx) = mpsc::channel();
     *TRAY_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
 

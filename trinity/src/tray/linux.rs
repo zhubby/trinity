@@ -94,7 +94,7 @@ impl ksni::Tray for TrinityTray {
 ///
 /// Spawns a background thread that runs the D-Bus StatusNotifierItem
 /// service. Tray events are forwarded via the returned `Receiver`.
-pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
+pub fn create_tray(_ctx: egui::Context, _tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let (tx, rx) = mpsc::channel();
     *TRAY_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
 

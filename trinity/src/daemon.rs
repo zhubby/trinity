@@ -1,6 +1,6 @@
-//! DaemonApp — invisible background eframe app that manages the system tray
+//! DaemonApp — settings root viewport that manages the system tray
 //!
-//! This app has a hidden main viewport and serves as the daemon backbone:
+//! This app uses the settings panel as the root viewport and serves as the daemon backbone:
 //! - Creates and polls the system tray for menu events
 //! - Shows the root Settings Panel viewport when requested
 //! - Closes the app when "Exit" is selected
@@ -9,7 +9,7 @@
 
 use eframe::App;
 use egui::{Context, ViewportBuilder, ViewportCommand, ViewportId};
-use log::warn;
+use log::{info, warn};
 use std::sync::{Arc, Mutex, mpsc};
 
 use crate::tray::TrayEvent;
@@ -24,8 +24,12 @@ fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
 }
 
+fn parked_panel_position() -> egui::Pos2 {
+    [-10_000.0, -10_000.0].into()
+}
+
 /// The background daemon application. Its root viewport is the settings panel;
-/// it starts hidden and is shown by the tray menu.
+/// closing the panel hides it while keeping the tray daemon alive.
 pub struct DaemonApp {
     /// Channel to receive tray events (ShowPanel / Exit)
     tray_rx: mpsc::Receiver<TrayEvent>,
@@ -35,6 +39,12 @@ pub struct DaemonApp {
     panel_app: PanelApp,
     /// Whether the tray has been created (deferred until eframe has initialized)
     tray_created: bool,
+    /// Whether tray creation is pending until the settings panel is hidden
+    tray_pending: bool,
+    /// Whether global hotkeys and translation hooks have been started
+    background_services_started: bool,
+    /// Number of UI passes completed; first pass only paints the settings panel
+    ui_passes: u8,
     /// Shared translation state for background translator threads
     translator_state: Arc<Mutex<TranslatorState>>,
     /// Channel to signal a new translation popup should appear
@@ -81,49 +91,65 @@ impl DaemonApp {
         // Channels for translation popup
         let (popup_tx, popup_rx) = mpsc::sync_channel(1);
         let (hotkey_reload_tx, hotkey_reload_rx) = mpsc::channel();
-        let hotkey_service = match HotkeyService::new(&trinity_util::cfg::get_hotkey_config()) {
-            Ok(service) => Some(service),
-            Err(err) => {
-                warn!("failed to initialize hotkeys: {err}");
-                None
-            }
-        };
-
         // Shared state for background translator
         let translator_state = Arc::new(Mutex::new(TranslatorState {
             text: String::new(),
         }));
 
+        let panel_app = PanelApp::new_from_context(&cc.egui_ctx, hotkey_reload_tx.clone());
+
         Self {
             tray_rx,
-            panel_visible: false,
-            panel_app: PanelApp::new_from_context(&cc.egui_ctx, hotkey_reload_tx.clone()),
+            panel_visible: true,
+            panel_app,
             tray_created: false,
+            tray_pending: true,
+            background_services_started: false,
+            ui_passes: 0,
             translator_state,
             translator_popup_tx: popup_tx,
             translator_popup_rx: popup_rx,
             translator_popup_visible: false,
-            hotkey_service,
+            hotkey_service: None,
             hotkey_reload_rx,
         }
     }
 }
 
 impl App for DaemonApp {
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
+    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        if self.ui_passes == 0 {
+            let (width, height) = get_window_size();
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize([width, height].into()));
+            ctx.send_viewport_cmd(ViewportCommand::OuterPosition([100.0, 100.0].into()));
+            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+            ctx.request_repaint();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
+        self.show_root_panel(ui);
+        if self.ui_passes == 0 {
+            self.ui_passes = 1;
+            ctx.request_repaint();
+            return;
+        }
+
         self.process_hotkey_reload_requests();
         self.process_hotkey_actions(&ctx);
-
-        self.ensure_tray_created(&ctx);
 
         if self.process_tray_events(&ctx) {
             return;
         }
 
         self.process_translation_popup_events();
-        self.show_root_panel(ui);
         self.show_translator_viewport(&ctx);
 
         // ── Keep daemon alive by requesting repaint ─────────────────────
@@ -132,16 +158,25 @@ impl App for DaemonApp {
 }
 
 impl DaemonApp {
-    fn ensure_tray_created(&mut self, ctx: &Context) {
+    fn ensure_tray_created(&mut self, _ctx: &Context) {
         if self.tray_created {
             return;
         }
 
+        info!("creating system tray");
         self.tray_created = true;
         let (tray_tx, _tray_rx) = mpsc::channel();
-        self.tray_rx = crate::tray::create_tray(tray_tx);
+        self.tray_rx = crate::tray::create_tray(_ctx.clone(), tray_tx);
+        info!("system tray created");
+    }
 
-        // ── Spawn background translator threads ────────────────────────
+    fn ensure_background_services_started(&mut self, ctx: &Context) {
+        if self.background_services_started {
+            return;
+        }
+
+        self.background_services_started = true;
+        self.ensure_hotkeys_started();
         spawn_translator_threads(
             ctx.clone(),
             self.translator_state.clone(),
@@ -149,13 +184,25 @@ impl DaemonApp {
         );
     }
 
+    fn ensure_hotkeys_started(&mut self) {
+        info!("initializing hotkeys");
+        match HotkeyService::new(&trinity_util::cfg::get_hotkey_config()) {
+            Ok(service) => {
+                self.hotkey_service = Some(service);
+                info!("hotkeys initialized");
+            }
+            Err(err) => {
+                warn!("failed to initialize hotkeys: {err}");
+            }
+        }
+    }
+
     fn process_tray_events(&mut self, ctx: &Context) -> bool {
         while let Ok(event) = self.tray_rx.try_recv() {
             match event {
                 TrayEvent::ShowPanel => {
                     self.panel_visible = true;
-                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-                    ctx.send_viewport_cmd(ViewportCommand::Focus);
+                    self.show_root_panel_window(ctx);
                 }
                 TrayEvent::Exit => {
                     // Close all viewports and exit
@@ -185,18 +232,45 @@ impl DaemonApp {
     fn show_root_panel(&mut self, ui: &mut egui::Ui) {
         let close_requested = ui.input(|input| input.viewport().close_requested());
         if close_requested {
-            self.panel_visible = false;
+            self.hide_root_panel(ui.ctx());
             ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
-            ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
             return;
         }
 
         if !self.panel_visible {
-            ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
             return;
         }
 
         self.panel_app.show_inside(ui);
+    }
+
+    fn show_root_panel_window(&self, ctx: &Context) {
+        let (width, height) = get_window_size();
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize([width, height].into()));
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition([100.0, 100.0].into()));
+        ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
+        ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+        ctx.request_repaint();
+    }
+
+    fn park_root_panel_window(&self, ctx: &Context) {
+        ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
+        ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize([1.0, 1.0].into()));
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(parked_panel_position()));
+    }
+
+    fn hide_root_panel(&mut self, ctx: &Context) {
+        self.panel_visible = false;
+        self.park_root_panel_window(ctx);
+        if self.tray_pending {
+            self.tray_pending = false;
+            self.ensure_tray_created(ctx);
+        }
+        self.ensure_background_services_started(ctx);
     }
 
     fn show_translator_viewport(&mut self, ctx: &Context) {

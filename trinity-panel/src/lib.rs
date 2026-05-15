@@ -48,14 +48,17 @@ impl PanelApp {
     /// Unlike `new(cc: &CreationContext)` which is for standalone eframe apps,
     /// this constructor uses the daemon's existing context.
     pub fn new_from_context(ctx: &Context, hotkey_reload_tx: HotkeyReloadTx) -> Self {
-        // Read current settings
-        let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-        let api_url = settings
-            .get_string("api")
-            .unwrap_or_else(|_| "https://deepl.zu1k.com/translate".to_string());
-        let theme = settings
-            .get_string("window.theme")
-            .unwrap_or_else(|_| "dark".to_string());
+        // Read current settings, then release the lock before loading hotkeys.
+        let (api_url, theme) = {
+            let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+            let api_url = settings
+                .get_string("api")
+                .unwrap_or_else(|_| "https://deepl.zu1k.com/translate".to_string());
+            let theme = settings
+                .get_string("window.theme")
+                .unwrap_or_else(|_| "dark".to_string());
+            (api_url, theme)
+        };
 
         // Apply theme
         match theme.as_str() {
@@ -84,13 +87,16 @@ impl PanelApp {
             _ => cc.egui_ctx.set_visuals(egui::Visuals::dark()),
         }
 
-        let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-        let api_url = settings
-            .get_string("api")
-            .unwrap_or_else(|_| "https://deepl.zu1k.com/translate".to_string());
-        let theme = settings
-            .get_string("window.theme")
-            .unwrap_or_else(|_| "dark".to_string());
+        let (api_url, theme) = {
+            let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+            let api_url = settings
+                .get_string("api")
+                .unwrap_or_else(|_| "https://deepl.zu1k.com/translate".to_string());
+            let theme = settings
+                .get_string("window.theme")
+                .unwrap_or_else(|_| "dark".to_string());
+            (api_url, theme)
+        };
 
         let hotkey_config = trinity_util::cfg::get_hotkey_config();
 

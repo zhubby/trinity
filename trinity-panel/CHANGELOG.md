@@ -6,6 +6,9 @@
 - Editable hotkey settings for opening the translator, translating the selection, and quitting Trinity.
 - Save flow that validates shortcuts, persists settings, and asks the daemon to reload hotkeys immediately.
 
+### Fixed
+- Avoid a settings mutex self-deadlock when initializing the panel and loading hotkey configuration.
+
 ## 2025-01-30
 
 ### Added

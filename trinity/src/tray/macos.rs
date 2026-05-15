@@ -12,10 +12,7 @@
 //! to `objc2` ecosystem is planned for a future release.
 
 use cocoa::{
-    appkit::{
-        NSApp, NSApplication, NSApplicationActivationPolicyAccessory, NSMenu, NSStatusBar,
-        NSVariableStatusItemLength,
-    },
+    appkit::{NSMenu, NSStatusBar, NSVariableStatusItemLength},
     base::{id, nil},
     foundation::{NSSize, NSString},
 };
@@ -43,6 +40,9 @@ pub enum TrayEvent {
 /// Tray menu actions write here; DaemonApp::logic() reads every frame.
 static TRAY_CHANNEL: LazyLock<Mutex<Option<mpsc::Sender<TrayEvent>>>> =
     LazyLock::new(|| Mutex::new(None));
+
+/// Egui context used to wake the daemon when AppKit sends a tray event.
+static REPAINT_CONTEXT: LazyLock<Mutex<Option<egui::Context>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Whether the tray has already been created (avoid duplicate status items)
 static TRAY_CREATED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
@@ -72,6 +72,7 @@ fn register_delegate_class() -> &'static Class {
         if let Some(sender) = guard.as_ref() {
             sender.send(TrayEvent::ShowPanel).ok();
         }
+        request_repaint();
     }
 
     extern "C" fn exit_app(_: &objc::runtime::Object, _: objc::runtime::Sel, _: id) {
@@ -79,6 +80,7 @@ fn register_delegate_class() -> &'static Class {
         if let Some(sender) = guard.as_ref() {
             sender.send(TrayEvent::Exit).ok();
         }
+        request_repaint();
     }
 
     unsafe {
@@ -93,6 +95,13 @@ fn register_delegate_class() -> &'static Class {
     }
 
     decl.register()
+}
+
+fn request_repaint() {
+    let guard = REPAINT_CONTEXT.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(ctx) = guard.as_ref() {
+        ctx.request_repaint();
+    }
 }
 
 // ── Helper: convert Rust str → NSString ─────────────────────────────
@@ -119,14 +128,13 @@ fn ns_string(s: &str) -> id {
 /// Returns a `Receiver<TrayEvent>` so `DaemonApp` can poll tray events each frame.
 /// Call this **once**, after eframe's NSApplication is running
 /// (i.e. from the daemon after eframe has initialized).
-pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
+pub fn create_tray(ctx: egui::Context, _tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let was_created = *TRAY_CREATED.lock().unwrap_or_else(|e| e.into_inner());
     if was_created {
         return mpsc::channel().1; // unused dummy
     }
     *TRAY_CREATED.lock().unwrap_or_else(|e| e.into_inner()) = true;
-
-    let _: bool = unsafe { NSApp().setActivationPolicy_(NSApplicationActivationPolicyAccessory) };
+    *REPAINT_CONTEXT.lock().unwrap_or_else(|e| e.into_inner()) = Some(ctx);
 
     let (real_tx, rx) = mpsc::channel();
     *TRAY_CHANNEL.lock().unwrap_or_else(|e| e.into_inner()) = Some(real_tx);
