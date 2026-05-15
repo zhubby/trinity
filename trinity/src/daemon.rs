@@ -21,7 +21,6 @@ use trinity_util::{
 };
 
 const WINDOW_RESIZE_HIT_ZONE: f32 = 8.0;
-const WINDOW_CORNER_RADIUS: u8 = 12;
 
 fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
@@ -124,10 +123,6 @@ fn apply_theme_preference(ctx: &Context) {
 }
 
 impl App for DaemonApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
-    }
-
     fn persist_egui_memory(&self) -> bool {
         false
     }
@@ -296,96 +291,90 @@ impl DaemonApp {
             }
         }
 
-        let fill = ui.visuals().panel_fill;
-        let stroke = ui.visuals().window_stroke();
-        egui::Frame::new()
-            .fill(fill)
-            .stroke(stroke)
-            .corner_radius(egui::CornerRadius::same(WINDOW_CORNER_RADIUS))
-            .inner_margin(1)
-            .show(ui, |ui| {
-                ui.set_min_size(ui.available_size());
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Hide Control Panel").clicked() {
-                            self.hide_root_panel(ui.ctx());
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Exit").clicked() {
-                            self.exit_app(ui.ctx());
-                            ui.close();
-                        }
-                    });
-
-                    ui.menu_button("Window", |ui| {
-                        if ui.button("Minimize").clicked() {
-                            ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
-                            ui.close();
-                        }
-                        if ui.button("Zoom").clicked() {
-                            ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
-                            ui.close();
-                        }
-                    });
-
-                    ui.menu_button("Help", |ui| {
-                        if ui.button("About Trinity").clicked() {
-                            self.about_visible = true;
-                            ui.close();
-                        }
-                    });
-
-                    let row_height = ui.spacing().interact_size.y;
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), row_height),
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            let button_size = egui::vec2(row_height, row_height);
-                            if ui
-                                .add_sized(button_size, egui::Button::new("x"))
-                                .on_hover_text("Hide Control Panel")
-                                .clicked()
-                            {
-                                self.hide_root_panel(ui.ctx());
-                            }
-
-                            if ui
-                                .add_sized(button_size, egui::Button::new("+"))
-                                .on_hover_text("Zoom")
-                                .clicked()
-                            {
-                                ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
-                            }
-
-                            if ui
-                                .add_sized(button_size, egui::Button::new("-"))
-                                .on_hover_text("Minimize")
-                                .clicked()
-                            {
-                                ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
-                            }
-
-                            let drag_size = egui::vec2(ui.available_width().max(0.0), row_height);
-                            if drag_size.x > 0.0 {
-                                let (_rect, response) = ui
-                                    .allocate_exact_size(drag_size, egui::Sense::click_and_drag());
-                                let pointer_pressed_on_region = response.hovered()
-                                    && ui.input(|input| {
-                                        input.pointer.button_pressed(egui::PointerButton::Primary)
-                                    });
-                                if pointer_pressed_on_region
-                                    && window_resize_direction_for_context(ui.ctx()).is_none()
-                                {
-                                    ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-                                }
-                            }
-                        },
-                    );
+        egui::Panel::top("trinity-menu-bar").show_inside(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Hide Control Panel").clicked() {
+                        self.hide_root_panel(ui.ctx());
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Exit").clicked() {
+                        self.exit_app(ui.ctx());
+                        ui.close();
+                    }
                 });
 
-                self.panel_app.show_inside(ui);
+                ui.menu_button("Window", |ui| {
+                    if ui.button("Minimize").clicked() {
+                        ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+                        ui.close();
+                    }
+                    if ui.button("Zoom").clicked() {
+                        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
+                        ui.close();
+                    }
+                });
+
+                ui.menu_button("Help", |ui| {
+                    if ui.button("About Trinity").clicked() {
+                        self.about_visible = true;
+                        ui.close();
+                    }
+                });
+
+                let row_height = ui.spacing().interact_size.y;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), row_height),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        let button_size = egui::vec2(row_height, row_height);
+                        if ui
+                            .add_sized(button_size, egui::Button::new("x"))
+                            .on_hover_text("Hide Control Panel")
+                            .clicked()
+                        {
+                            self.hide_root_panel(ui.ctx());
+                        }
+
+                        if ui
+                            .add_sized(button_size, egui::Button::new("+"))
+                            .on_hover_text("Zoom")
+                            .clicked()
+                        {
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
+                        }
+
+                        if ui
+                            .add_sized(button_size, egui::Button::new("-"))
+                            .on_hover_text("Minimize")
+                            .clicked()
+                        {
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+                        }
+
+                        let drag_size = egui::vec2(ui.available_width().max(0.0), row_height);
+                        if drag_size.x > 0.0 {
+                            let (_rect, response) =
+                                ui.allocate_exact_size(drag_size, egui::Sense::click_and_drag());
+                            let pointer_pressed_on_region = response.hovered()
+                                && ui.input(|input| {
+                                    input.pointer.button_pressed(egui::PointerButton::Primary)
+                                });
+                            if pointer_pressed_on_region
+                                && window_resize_direction_for_context(ui.ctx()).is_none()
+                            {
+                                ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+                            }
+                        }
+                    },
+                );
             });
+        });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.panel_app.show_inside(ui);
+        });
     }
 
     fn show_about_window(&mut self, ctx: &Context) {

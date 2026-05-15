@@ -66,8 +66,7 @@ fn launch_daemon() {
         .with_inner_size([width, height])
         .with_position([100.0, 100.0])
         .with_decorations(false)
-        .with_resizable(true)
-        .with_transparent(true);
+        .with_resizable(true);
 
     let native_options = eframe::NativeOptions {
         viewport,

@@ -14,6 +14,7 @@ use egui_dock::{DockArea, DockState, TabViewer};
 use egui_theme_switch::ThemeSwitch;
 use trinity_util::{
     cfg::{get_api, get_theme, save_basic_config, save_hotkey_config, settings_path},
+    font::install_fonts,
     hotkey::HotkeyConfig,
 };
 
@@ -103,26 +104,24 @@ impl PanelApp {
     pub fn show_inside(&mut self, ui: &mut egui::Ui) {
         self.poll_hotkey_reload_result();
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| {
-                self.show_header(ui);
-                ui.add_space(8.0);
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.show_header(ui);
+            ui.add_space(8.0);
 
-                let mut dock_state =
-                    std::mem::replace(&mut self.dock_state, Self::default_dock_state());
-                let mut viewer = PanelTabViewer { app: self };
-                DockArea::new(&mut dock_state)
-                    .show_add_buttons(false)
-                    .show_add_popup(false)
-                    .show_close_buttons(false)
-                    .draggable_tabs(false)
-                    .tab_context_menus(false)
-                    .show_leaf_close_all_buttons(false)
-                    .show_leaf_collapse_buttons(false)
-                    .show_inside(ui, &mut viewer);
-                self.dock_state = dock_state;
-            });
+            let mut dock_state =
+                std::mem::replace(&mut self.dock_state, Self::default_dock_state());
+            let mut viewer = PanelTabViewer { app: self };
+            DockArea::new(&mut dock_state)
+                .show_add_buttons(false)
+                .show_add_popup(false)
+                .show_close_buttons(false)
+                .draggable_tabs(false)
+                .tab_context_menus(false)
+                .show_leaf_close_all_buttons(false)
+                .show_leaf_collapse_buttons(false)
+                .show_inside(ui, &mut viewer);
+            self.dock_state = dock_state;
+        });
     }
 
     fn from_config(
@@ -258,6 +257,7 @@ impl PanelApp {
         let theme = theme_from_preference(preference);
         self.theme = theme.to_string();
         ctx.set_theme(preference);
+        install_fonts(ctx);
 
         self.basic_status = match save_basic_config(self.api_url.trim(), theme) {
             Ok(()) => Some(Ok("主题已保存。".to_string())),
@@ -374,6 +374,7 @@ fn load_basic_config() -> (String, String) {
 
 fn apply_theme(ctx: &Context, theme: &str) {
     ctx.set_theme(theme_preference(theme));
+    install_fonts(ctx);
 }
 
 fn normalize_theme(theme: &str) -> &'static str {

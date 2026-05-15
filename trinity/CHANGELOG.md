@@ -8,7 +8,6 @@
 - Settings and translator viewports now track close requests independently so each window can be closed and reopened without affecting the other.
 - The settings panel is now the root viewport and is shown on startup.
 - The Control Panel now uses a borderless egui menu bar with window action buttons, drag handling, and edge resize support.
-- The Control Panel root window now uses a transparent viewport with a rounded egui shell.
 - The system tray is created as soon as the eframe daemon starts instead of waiting for the Control Panel to be hidden.
 - The daemon now applies the saved system/dark/light theme preference on startup.
 - Window position persistence is disabled so previously hidden/off-screen panel positions do not affect startup visibility.

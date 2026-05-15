@@ -13,7 +13,6 @@
 - Control Panel now displays and saves the user-local JSON config path.
 - Renamed the user-facing settings panel language to Control Panel.
 - Theme changes are applied and saved immediately when the switch changes.
-- Panel content now uses a transparent inner frame so the daemon shell can provide rounded window corners.
 
 ### Fixed
 - Avoid a settings mutex self-deadlock when initializing the panel and loading hotkey configuration.
