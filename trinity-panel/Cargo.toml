@@ -3,7 +3,11 @@ name = "trinity-panel"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-trinity-util = { path = "../trinity-util" }
-eframe.workspace = true
-egui.workspace = true
+trinity-util = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+log = { workspace = true }

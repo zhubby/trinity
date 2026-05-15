@@ -3,6 +3,9 @@ name = "trinity-translator"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 trinity-util = { path = "../trinity-util" }
 eframe.workspace = true

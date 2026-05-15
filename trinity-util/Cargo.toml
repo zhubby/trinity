@@ -3,6 +3,9 @@ name = "trinity-util"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 eframe.workspace = true
 egui.workspace = true

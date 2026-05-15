@@ -13,4 +13,4 @@ pub mod icon;
 // Re-export commonly used items for convenience
 pub use cfg::{SETTINGS, get_api, get_theme, get_window_size, init_config};
 pub use font::install_fonts;
-pub use icon::get_icon_data;
+pub use icon::{PNG_BYTES, get_icon_data};

@@ -3,12 +3,33 @@ name = "trinity-gui"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-trinity-util = { path = "../trinity-util" }
-trinity-translator = { path = "../trinity-translator" }
-trinity-clipboard = { path = "../trinity-clipboard" }
-trinity-dictation = { path = "../trinity-dictation" }
-trinity-panel = { path = "../trinity-panel" }
+trinity-util = { workspace = true }
+trinity-translator = { workspace = true }
+trinity-clipboard = { workspace = true }
+trinity-dictation = { workspace = true }
+trinity-panel = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+cfg-if = { workspace = true }
+log = { workspace = true }
+rdev = { workspace = true }
+deepl = { workspace = true }
+cli-clipboard = { workspace = true }
+
+# Platform-specific tray dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = { workspace = true }
+cocoa = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { workspace = true }
 
 [build-dependencies]
 winres = "0.1"
