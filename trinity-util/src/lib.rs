@@ -20,6 +20,9 @@ pub use cfg::{
     save_clipboard_config, save_hotkey_config, settings_path,
 };
 pub use font::install_fonts;
-pub use hotkey::{HotkeyAction, HotkeyConfig, HotkeyRegistrationError, HotkeyService};
+pub use hotkey::{
+    HotkeyAction, HotkeyConfig, HotkeyRegistrationError, HotkeyService,
+    install_global_hotkey_event_forwarder,
+};
 pub use icon::{LOGO_PNG_BYTES, TRAY_PNG_BYTES, get_icon_data};
 pub use persistence::ClipboardConfig;

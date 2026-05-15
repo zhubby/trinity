@@ -18,6 +18,10 @@ mod tray;
 
 use clap::Parser;
 use log::LevelFilter;
+use trinity_util::{
+    cfg::get_hotkey_config,
+    hotkey::{HotkeyAction, HotkeyService, install_global_hotkey_event_forwarder},
+};
 
 /// Trinity — Desktop AI trifecta assistant
 #[derive(Parser)]
@@ -44,7 +48,15 @@ fn main() {
             LevelFilter::Debug
         }
     };
-    env_logger::Builder::new().filter_level(level).init();
+    let mut logger = env_logger::Builder::new();
+    logger.filter_level(level);
+    logger
+        .filter_module("egui_wgpu", LevelFilter::Warn)
+        .filter_module("wgpu", LevelFilter::Warn)
+        .filter_module("wgpu_core", LevelFilter::Warn)
+        .filter_module("wgpu_hal", LevelFilter::Warn)
+        .filter_module("naga", LevelFilter::Warn);
+    logger.init();
 
     // Initialize shared configuration
     trinity_util::init_config();
@@ -54,10 +66,29 @@ fn main() {
     trinity_dictation::init();
 
     // Launch the daemon — control panel root viewport + system tray
-    launch_daemon();
+    let hotkey_config = get_hotkey_config();
+    let (hotkey_event_tx, hotkey_event_rx) = std::sync::mpsc::channel::<HotkeyAction>();
+    let hotkey_service = match HotkeyService::new(&hotkey_config) {
+        Ok(service) => {
+            log::info!("hotkeys initialized before eframe startup");
+            if let Err(err) = install_global_hotkey_event_forwarder(&hotkey_config, hotkey_event_tx)
+            {
+                log::warn!("failed to install global hotkey event forwarder: {err}");
+            }
+            Some(service)
+        }
+        Err(err) => {
+            log::warn!("failed to initialize hotkeys before eframe startup: {err}");
+            None
+        }
+    };
+    launch_daemon(hotkey_service, hotkey_event_rx);
 }
 
-fn launch_daemon() {
+fn launch_daemon(
+    hotkey_service: Option<HotkeyService>,
+    hotkey_event_rx: std::sync::mpsc::Receiver<HotkeyAction>,
+) {
     let (width, height) = trinity_util::cfg::get_window_size();
     // The root viewport is the borderless control panel. Close hides it
     // instead of exiting the daemon; tray/menu Exit performs the full quit.
@@ -77,7 +108,13 @@ fn launch_daemon() {
     eframe::run_native(
         "Trinity",
         native_options,
-        Box::new(|cc| Ok(Box::new(daemon::DaemonApp::new(cc)))),
+        Box::new(|cc| {
+            Ok(Box::new(daemon::DaemonApp::new(
+                cc,
+                hotkey_service,
+                hotkey_event_rx,
+            )))
+        }),
     )
     .ok();
 }

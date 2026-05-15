@@ -40,11 +40,15 @@ trinity/
 
 ### Windows
 
-Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `CmdOrCtrl+Shift+T` to translate the current selection. Press `CmdOrCtrl+Shift+V` to open clipboard history. `Esc` closes floating windows. `CmdOrCtrl+Shift+D` exits completely.
+Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. `Esc` closes floating windows. `Control+Shift+D` exits completely.
 
-### macOS / Linux
+### macOS
 
-Launch the binary — the translator window appears immediately. Select text anywhere to trigger translation.
+Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Command+Shift+T` to translate the current selection. Press `Command+Shift+V` to open clipboard history. `Esc` closes floating windows. `Command+Shift+D` exits completely.
+
+### Linux
+
+Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. `Esc` closes floating windows. `Control+Shift+D` exits completely.
 
 ### General
 
@@ -78,7 +82,7 @@ Requires Rust nightly (edition 2024). The toolchain is pinned in `rust-toolchain
 
 Settings are loaded from `~/.trinity/config.json`. Trinity creates the file with defaults on first launch.
 
-Example:
+macOS example:
 
 ```json
 {
@@ -93,9 +97,9 @@ Example:
   },
   "hotkey": {
     "open_translator": "Alt+Q",
-    "translate_selection": "CmdOrCtrl+Shift+T",
-    "open_clipboard": "CmdOrCtrl+Shift+V",
-    "quit_app": "CmdOrCtrl+Shift+D"
+    "translate_selection": "Command+Shift+T",
+    "open_clipboard": "Command+Shift+V",
+    "quit_app": "Command+Shift+D"
   },
   "clipboard": {
     "capacity": 100,

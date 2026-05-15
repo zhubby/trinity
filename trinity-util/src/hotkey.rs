@@ -1,10 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{LazyLock, Mutex, mpsc},
+};
 
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{HotKey, HotKeyParseError},
 };
 use serde::{Deserialize, Serialize};
+
+static GLOBAL_EVENT_ACTIONS: LazyLock<Mutex<HashMap<u32, HotkeyAction>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HotkeyAction {
@@ -28,9 +34,18 @@ pub struct HotkeyConfig {
 
 impl HotkeyConfig {
     pub const DEFAULT_OPEN_TRANSLATOR: &'static str = "Alt+Q";
-    pub const DEFAULT_TRANSLATE_SELECTION: &'static str = "CmdOrCtrl+Shift+T";
-    pub const DEFAULT_OPEN_CLIPBOARD: &'static str = "CmdOrCtrl+Shift+V";
-    pub const DEFAULT_QUIT_APP: &'static str = "CmdOrCtrl+Shift+D";
+    #[cfg(target_os = "macos")]
+    pub const DEFAULT_TRANSLATE_SELECTION: &'static str = "Command+Shift+T";
+    #[cfg(not(target_os = "macos"))]
+    pub const DEFAULT_TRANSLATE_SELECTION: &'static str = "Control+Shift+T";
+    #[cfg(target_os = "macos")]
+    pub const DEFAULT_OPEN_CLIPBOARD: &'static str = "Command+Shift+V";
+    #[cfg(not(target_os = "macos"))]
+    pub const DEFAULT_OPEN_CLIPBOARD: &'static str = "Control+Shift+V";
+    #[cfg(target_os = "macos")]
+    pub const DEFAULT_QUIT_APP: &'static str = "Command+Shift+D";
+    #[cfg(not(target_os = "macos"))]
+    pub const DEFAULT_QUIT_APP: &'static str = "Control+Shift+D";
 
     #[must_use]
     pub fn entries(&self) -> [(HotkeyAction, &str); 4] {
@@ -206,6 +221,11 @@ impl HotkeyService {
                     message: err.to_string(),
                 });
             }
+            log::info!(
+                "registered global hotkey action={action:?} hotkey={} id={}",
+                hotkey,
+                hotkey.id()
+            );
             self.action_by_id.insert(hotkey.id(), action);
             self.registered.push((action, hotkey));
         }
@@ -228,6 +248,41 @@ impl HotkeyService {
         self.action_by_id.clear();
         Ok(())
     }
+}
+
+pub fn install_global_hotkey_event_forwarder(
+    config: &HotkeyConfig,
+    tx: mpsc::Sender<HotkeyAction>,
+) -> Result<(), HotkeyRegistrationError> {
+    let actions = parse_hotkeys(config)?
+        .into_iter()
+        .map(|(action, hotkey)| (hotkey.id(), action))
+        .collect::<HashMap<_, _>>();
+    *GLOBAL_EVENT_ACTIONS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner()) = actions;
+
+    GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+        log::debug!(
+            "global hotkey raw event id={} state={:?}",
+            event.id(),
+            event.state()
+        );
+        if event.state() != HotKeyState::Released {
+            return;
+        }
+
+        let action = GLOBAL_EVENT_ACTIONS
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .get(&event.id())
+            .copied();
+        if let Some(action) = action {
+            tx.send(action).ok();
+        }
+    }));
+
+    Ok(())
 }
 
 impl Drop for HotkeyService {
@@ -295,8 +350,8 @@ mod tests {
         let config = HotkeyConfig {
             open_translator: "Alt+Q".to_string(),
             translate_selection: "Alt+Q".to_string(),
-            open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
-            quit_app: "CmdOrCtrl+Shift+D".to_string(),
+            open_clipboard: "Command+Shift+V".to_string(),
+            quit_app: "Command+Shift+D".to_string(),
         };
 
         assert!(matches!(

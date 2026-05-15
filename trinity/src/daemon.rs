@@ -22,13 +22,11 @@ use trinity_util::{
 };
 
 const WINDOW_RESIZE_HIT_ZONE: f32 = 8.0;
+const CLIPBOARD_VIEWPORT_SIZE: egui::Vec2 = egui::vec2(360.0, 260.0);
+const CLIPBOARD_CURSOR_OFFSET: egui::Vec2 = egui::vec2(12.0, 12.0);
 
 fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
-}
-
-fn clipboard_viewport_id() -> ViewportId {
-    ViewportId::from_hash_of("clipboard_history")
 }
 
 /// The background daemon application. Its root viewport is the control panel;
@@ -60,12 +58,18 @@ pub struct DaemonApp {
     translator_popup_visible: bool,
     /// Application-wide system hotkey service
     hotkey_service: Option<HotkeyService>,
+    /// Whether hotkey initialization has already been attempted.
+    hotkey_start_attempted: bool,
     /// Channel for daemon-side hotkey reload handling
     hotkey_reload_rx: mpsc::Receiver<HotkeyReloadRequest>,
+    /// Channel for global-hotkey event handler actions.
+    hotkey_event_rx: mpsc::Receiver<HotkeyAction>,
     /// Text clipboard history manager.
     clipboard_manager: ClipboardManager,
     /// Whether the clipboard picker viewport is currently visible
     clipboard_visible: bool,
+    /// Last requested clipboard picker position in monitor coordinates.
+    clipboard_popup_position: Option<egui::Pos2>,
 }
 
 /// Translation popup event carrying the text to display
@@ -84,7 +88,11 @@ impl DaemonApp {
     ///
     /// The tray is created lazily from `logic()` because macOS requires
     /// NSApp to be initialized first (eframe sets this up).
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        hotkey_service: Option<HotkeyService>,
+        hotkey_event_rx: mpsc::Receiver<HotkeyAction>,
+    ) -> Self {
         install_fonts(&cc.egui_ctx);
 
         apply_theme_preference(&cc.egui_ctx);
@@ -117,10 +125,13 @@ impl DaemonApp {
             translator_popup_tx: popup_tx,
             translator_popup_rx: popup_rx,
             translator_popup_visible: false,
-            hotkey_service: None,
+            hotkey_start_attempted: true,
+            hotkey_service,
             hotkey_reload_rx,
+            hotkey_event_rx,
             clipboard_manager,
             clipboard_visible: false,
+            clipboard_popup_position: None,
         }
     }
 }
@@ -132,6 +143,20 @@ fn apply_theme_preference(ctx: &Context) {
         _ => egui::ThemePreference::Dark,
     };
     ctx.set_theme(preference);
+}
+
+fn start_hotkeys() -> Option<HotkeyService> {
+    info!("initializing hotkeys");
+    match HotkeyService::new(&trinity_util::cfg::get_hotkey_config()) {
+        Ok(service) => {
+            info!("hotkeys initialized");
+            Some(service)
+        }
+        Err(err) => {
+            warn!("failed to initialize hotkeys: {err}");
+            None
+        }
+    }
 }
 
 impl App for DaemonApp {
@@ -157,6 +182,10 @@ impl App for DaemonApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
+        if self.process_tray_events(&ctx) {
+            return;
+        }
+
         self.show_root_panel(ui);
         if self.ui_passes == 0 {
             self.ui_passes = 1;
@@ -164,16 +193,14 @@ impl App for DaemonApp {
             return;
         }
 
+        self.ensure_hotkeys_started();
+        self.clipboard_manager.start_monitoring();
         self.process_hotkey_reload_requests();
         self.process_hotkey_actions(&ctx);
 
-        if self.process_tray_events(&ctx) {
-            return;
-        }
-
         self.process_translation_popup_events();
         self.show_translator_viewport(&ctx);
-        self.show_clipboard_viewport(&ctx);
+        self.show_clipboard_overlay(&ctx);
 
         // ── Keep daemon alive by requesting repaint ─────────────────────
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -209,30 +236,27 @@ impl DaemonApp {
     }
 
     fn ensure_hotkeys_started(&mut self) {
-        info!("initializing hotkeys");
-        match HotkeyService::new(&trinity_util::cfg::get_hotkey_config()) {
-            Ok(service) => {
-                self.hotkey_service = Some(service);
-                info!("hotkeys initialized");
-            }
-            Err(err) => {
-                warn!("failed to initialize hotkeys: {err}");
-            }
+        if self.hotkey_service.is_some() || self.hotkey_start_attempted {
+            return;
         }
+
+        self.hotkey_start_attempted = true;
+        self.hotkey_service = start_hotkeys();
     }
 
     fn process_tray_events(&mut self, ctx: &Context) -> bool {
         while let Ok(event) = self.tray_rx.try_recv() {
             match event {
                 TrayEvent::ShowPanel => {
+                    info!("processing tray ShowPanel event");
                     self.panel_visible = true;
                     self.show_root_panel_window(ctx);
                 }
                 TrayEvent::Exit => {
+                    info!("processing tray Exit event");
                     // Close all viewports and exit
                     self.exit_requested = true;
                     ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
-                    ctx.send_viewport_cmd_to(clipboard_viewport_id(), ViewportCommand::Close);
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                     return true;
                 }
@@ -294,7 +318,6 @@ impl DaemonApp {
     fn exit_app(&mut self, ctx: &Context) {
         self.exit_requested = true;
         ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
-        ctx.send_viewport_cmd_to(clipboard_viewport_id(), ViewportCommand::Close);
         ctx.send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -472,58 +495,34 @@ impl DaemonApp {
         }
     }
 
-    fn show_clipboard_viewport(&mut self, ctx: &Context) {
+    fn show_clipboard_overlay(&mut self, ctx: &Context) {
         if !self.clipboard_visible {
             return;
         }
 
         self.clipboard_manager.reload_config(get_clipboard_config());
         let manager = self.clipboard_manager.clone();
-        let close_requested = ctx.show_viewport_immediate(
-            clipboard_viewport_id(),
-            ViewportBuilder::default()
-                .with_title("Clipboard History")
-                .with_always_on_top()
-                .with_decorations(false)
-                .with_inner_size([520.0, 420.0]),
-            move |ui, _class| {
-                let mut close_requested = ui.input(|input| input.viewport().close_requested());
+        let mut close_requested = false;
+        let position = egui::Pos2::ZERO;
 
-                egui::CentralPanel::default().show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("x").clicked() {
-                                close_requested = true;
-                                ui.ctx().send_viewport_cmd_to(
-                                    clipboard_viewport_id(),
-                                    ViewportCommand::Close,
-                                );
-                            }
-                        });
-                    });
+        egui::Window::new("Clipboard History")
+            .id(egui::Id::new("clipboard_history_overlay"))
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_pos(position)
+            .fixed_size(CLIPBOARD_VIEWPORT_SIZE)
+            .show(ctx, |ui| match manager.show_inside(ui) {
+                ClipboardUiAction::None => {}
+                ClipboardUiAction::Close => {
+                    close_requested = true;
+                }
+                ClipboardUiAction::Paste(text) => {
+                    close_requested = true;
+                    std::thread::spawn(move || trinity_clipboard::paste_text(text));
+                }
+            });
 
-                    match manager.show_inside(ui) {
-                        ClipboardUiAction::None => {}
-                        ClipboardUiAction::Close => {
-                            close_requested = true;
-                            ui.ctx().send_viewport_cmd_to(
-                                clipboard_viewport_id(),
-                                ViewportCommand::Close,
-                            );
-                        }
-                        ClipboardUiAction::Paste(text) => {
-                            close_requested = true;
-                            ui.ctx().send_viewport_cmd_to(
-                                clipboard_viewport_id(),
-                                ViewportCommand::Close,
-                            );
-                            std::thread::spawn(move || trinity_clipboard::paste_text(text));
-                        }
-                    }
-                });
-                close_requested
-            },
-        );
         if close_requested {
             self.clipboard_visible = false;
         }
@@ -553,11 +552,15 @@ impl DaemonApp {
     }
 
     fn process_hotkey_actions(&mut self, ctx: &Context) {
-        let actions = self
+        let mut actions = self
             .hotkey_service
             .as_ref()
             .map(HotkeyService::poll_actions)
             .unwrap_or_default();
+        while let Ok(action) = self.hotkey_event_rx.try_recv() {
+            info!("global hotkey event handler triggered {action:?}");
+            actions.push(action);
+        }
 
         for action in actions {
             match action {
@@ -572,7 +575,16 @@ impl DaemonApp {
                 ),
                 HotkeyAction::OpenClipboard => {
                     self.clipboard_manager.start_monitoring();
+                    let position = clipboard_popup_position(ctx);
+                    info!("opening clipboard overlay at {position:?}");
+                    self.clipboard_popup_position = Some(position);
                     self.clipboard_visible = true;
+                    self.panel_visible = true;
+                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(CLIPBOARD_VIEWPORT_SIZE));
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(position));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
                     ctx.request_repaint();
                 }
                 HotkeyAction::QuitApp => {
@@ -641,11 +653,98 @@ fn resize_cursor_icon(direction: egui::viewport::ResizeDirection) -> egui::Curso
     }
 }
 
+fn clipboard_popup_position(ctx: &Context) -> egui::Pos2 {
+    let cursor = current_mouse_position()
+        .or_else(|| cursor_position_from_egui(ctx))
+        .unwrap_or(egui::pos2(100.0, 100.0));
+    let monitor_size = ctx
+        .input(|input| input.viewport().monitor_size)
+        .or_else(display_size_points);
+
+    clamp_popup_position(cursor + CLIPBOARD_CURSOR_OFFSET, monitor_size)
+}
+
+fn cursor_position_from_egui(ctx: &Context) -> Option<egui::Pos2> {
+    ctx.input(|input| {
+        let pointer_pos = input.pointer.latest_pos()?;
+        let viewport_rect = input
+            .viewport()
+            .outer_rect
+            .or(input.viewport().inner_rect)?;
+        Some(viewport_rect.min + pointer_pos.to_vec2())
+    })
+}
+
+fn clamp_popup_position(pos: egui::Pos2, monitor_size: Option<egui::Vec2>) -> egui::Pos2 {
+    let Some(monitor_size) = monitor_size else {
+        return pos;
+    };
+
+    let max_x = (monitor_size.x - CLIPBOARD_VIEWPORT_SIZE.x - 8.0).max(0.0);
+    let max_y = (monitor_size.y - CLIPBOARD_VIEWPORT_SIZE.y - 8.0).max(0.0);
+    egui::pos2(pos.x.clamp(0.0, max_x), pos.y.clamp(0.0, max_y))
+}
+
+fn display_size_points() -> Option<egui::Vec2> {
+    let (width, height) = rdev::display_size().ok()?;
+    Some(egui::vec2(width as f32, height as f32))
+}
+
+#[cfg(target_os = "macos")]
+fn current_mouse_position() -> Option<egui::Pos2> {
+    use objc::{class, msg_send, sel, sel_impl};
+
+    #[repr(C)]
+    struct AppKitPoint {
+        x: f64,
+        y: f64,
+    }
+
+    let point: AppKitPoint = unsafe { msg_send![class!(NSEvent), mouseLocation] };
+    let (_, display_height) = rdev::display_size().ok()?;
+    Some(egui::pos2(
+        point.x as f32,
+        display_height as f32 - point.y as f32,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn current_mouse_position() -> Option<egui::Pos2> {
+    use winapi::{shared::windef::POINT, um::winuser::GetCursorPos};
+
+    let mut point = POINT { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut point) };
+    (ok != 0).then_some(egui::pos2(point.x as f32, point.y as f32))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn current_mouse_position() -> Option<egui::Pos2> {
+    None
+}
+
 /// Spawn the background translator threads:
 /// 1. Mouse listener (rdev::listen) — detects word selection
 /// 2. Translation poller — waits for selection, runs DeepL translation,
 ///    then signals popup via channel
 fn spawn_translator_threads(
+    ctx: Context,
+    state: Arc<Mutex<TranslatorState>>,
+    popup_tx: mpsc::SyncSender<TranslationPopupEvent>,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (ctx, state, popup_tx);
+        warn!(
+            "automatic selection translation is disabled on macOS because rdev::listen crashes on modifier key events"
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    spawn_translator_threads_with_rdev(ctx, state, popup_tx);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn spawn_translator_threads_with_rdev(
     ctx: Context,
     state: Arc<Mutex<TranslatorState>>,
     popup_tx: mpsc::SyncSender<TranslationPopupEvent>,

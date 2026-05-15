@@ -12,7 +12,7 @@
 //! to `objc2` ecosystem is planned for a future release.
 
 use cocoa::{
-    appkit::{NSMenu, NSStatusBar, NSVariableStatusItemLength},
+    appkit::{NSApp, NSMenu, NSStatusBar, NSVariableStatusItemLength},
     base::{id, nil},
     foundation::{NSSize, NSString},
 };
@@ -68,6 +68,7 @@ fn register_delegate_class() -> &'static Class {
         ClassDecl::new("TrinityTrayDelegate", superclass).expect("class already registered");
 
     extern "C" fn show_panel(_: &objc::runtime::Object, _: objc::runtime::Sel, _: id) {
+        log::info!("macOS tray Show Control Panel selected");
         let guard = TRAY_CHANNEL.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(sender) = guard.as_ref() {
             sender.send(TrayEvent::ShowPanel).ok();
@@ -76,11 +77,14 @@ fn register_delegate_class() -> &'static Class {
     }
 
     extern "C" fn exit_app(_: &objc::runtime::Object, _: objc::runtime::Sel, _: id) {
+        log::info!("macOS tray Exit selected");
         let guard = TRAY_CHANNEL.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(sender) = guard.as_ref() {
             sender.send(TrayEvent::Exit).ok();
         }
         request_repaint();
+        let app = unsafe { NSApp() };
+        let _: () = unsafe { msg_send![app, terminate: nil] };
     }
 
     unsafe {

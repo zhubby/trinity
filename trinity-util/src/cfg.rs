@@ -149,9 +149,9 @@ mod tests {
             },
             hotkey: HotkeyConfig {
                 open_translator: "Alt+W".to_string(),
-                translate_selection: "CmdOrCtrl+Shift+Y".to_string(),
-                open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
-                quit_app: "CmdOrCtrl+Shift+U".to_string(),
+                translate_selection: "Command+Shift+Y".to_string(),
+                open_clipboard: "Command+Shift+V".to_string(),
+                quit_app: "Command+Shift+U".to_string(),
             },
             clipboard: ClipboardConfig {
                 capacity: 42,
@@ -196,9 +196,9 @@ mod tests {
 
         let hotkey = HotkeyConfig {
             open_translator: "Alt+W".to_string(),
-            translate_selection: "CmdOrCtrl+Shift+T".to_string(),
-            open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
-            quit_app: "CmdOrCtrl+Shift+D".to_string(),
+            translate_selection: "Command+Shift+T".to_string(),
+            open_clipboard: "Command+Shift+V".to_string(),
+            quit_app: "Command+Shift+D".to_string(),
         };
         save_hotkey_config_to_path(&path, &hotkey)
             .unwrap_or_else(|err| panic!("failed to save hotkey config: {err}"));
@@ -228,9 +228,9 @@ mod tests {
             },
             hotkey: HotkeyConfig {
                 open_translator: "Alt+Q".to_string(),
-                translate_selection: "CmdOrCtrl+Shift+T".to_string(),
-                open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
-                quit_app: "CmdOrCtrl+Shift+D".to_string(),
+                translate_selection: "Command+Shift+T".to_string(),
+                open_clipboard: "Command+Shift+V".to_string(),
+                quit_app: "Command+Shift+D".to_string(),
             },
             clipboard: ClipboardConfig {
                 capacity: 50,

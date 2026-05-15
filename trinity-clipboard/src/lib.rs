@@ -232,29 +232,27 @@ fn show_history(ui: &mut egui::Ui, state: &mut ClipboardState) -> ClipboardUiAct
             .unwrap_or(ClipboardUiAction::Close);
     }
 
+    ui.spacing_mut().item_spacing = egui::vec2(4.0, 2.0);
+    ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
+
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            ui.heading("剪切板历史");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let page = if state.entries.is_empty() {
-                    0
-                } else {
-                    state.page + 1
-                };
-                ui.label(
-                    RichText::new(format!("{page}/{}", state.page_count()))
-                        .small()
-                        .color(ui.visuals().weak_text_color()),
-                );
-            });
+            let page = if state.entries.is_empty() {
+                0
+            } else {
+                state.page + 1
+            };
+            ui.label(RichText::new("剪切板历史").strong().size(14.0));
+            ui.label(
+                RichText::new(format!("{page}/{}", state.page_count()))
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
         });
-        ui.separator();
+        ui.add_space(2.0);
 
         if state.entries.is_empty() {
-            ui.add_space(16.0);
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("暂无剪切板历史").color(ui.visuals().weak_text_color()));
-            });
+            ui.label(RichText::new("暂无剪切板历史").color(ui.visuals().weak_text_color()));
             return;
         }
 
@@ -273,20 +271,28 @@ fn show_history(ui: &mut egui::Ui, state: &mut ClipboardState) -> ClipboardUiAct
                 ui.visuals().text_color()
             };
 
-            egui::Frame::NONE
-                .fill(fill)
-                .inner_margin(egui::Margin::same(8))
-                .show(ui, |ui| {
-                    let response = ui
-                        .add_sized(
-                            [ui.available_width(), 28.0],
-                            egui::Label::new(RichText::new(preview).color(text_color)).truncate(),
-                        )
-                        .on_hover_text(text);
-                    if response.clicked() {
-                        state.selected_index = index;
-                    }
-                });
+            let width = ui.available_width();
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::click());
+            if selected {
+                ui.painter().rect_filled(rect, 4.0, fill);
+            }
+
+            let text_rect = rect.shrink2(egui::vec2(6.0, 3.0));
+            let mut row_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(text_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            row_ui.add_sized(
+                [text_rect.width(), text_rect.height()],
+                egui::Label::new(RichText::new(preview).color(text_color).size(13.0)).truncate(),
+            );
+
+            let response = response.on_hover_text(text);
+            if response.clicked() {
+                state.selected_index = index;
+            }
         }
     });
 
