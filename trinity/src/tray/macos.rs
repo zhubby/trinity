@@ -1,7 +1,7 @@
 //! macOS tray implementation using NSStatusItem
 //!
 //! Creates a status bar icon with a dropdown menu containing:
-//! - "Show Settings Panel" → TrayEvent::ShowPanel
+//! - "Show Control Panel" → TrayEvent::ShowPanel
 //! - "Exit" → TrayEvent::Exit
 //!
 //! This must be called AFTER eframe has initialized NSApplication,
@@ -175,10 +175,10 @@ pub fn create_tray(ctx: egui::Context, _tx: mpsc::Sender<TrayEvent>) -> mpsc::Re
     let menu: id = unsafe { NSMenu::new(nil) };
     let _: () = unsafe { msg_send![menu, setAutoenablesItems: false] };
 
-    // "Show Settings Panel"
+    // "Show Control Panel"
     let panel_item: id = unsafe { msg_send![class!(NSMenuItem), alloc] };
     let panel_item: id = unsafe {
-        msg_send![panel_item, initWithTitle: ns_string("Show Settings Panel")
+        msg_send![panel_item, initWithTitle: ns_string("Show Control Panel")
                                               action: sel!(showPanel:)
                                               keyEquivalent: ns_string("")]
     };

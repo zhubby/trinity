@@ -11,11 +11,12 @@ pub mod cfg;
 pub mod font;
 pub mod hotkey;
 pub mod icon;
+pub mod persistence;
 
 // Re-export commonly used items for convenience
 pub use cfg::{
-    SETTINGS, get_api, get_hotkey_config, get_theme, get_window_size, init_config,
-    save_hotkey_config, settings_path,
+    SETTINGS, get_api, get_font_size_plus, get_hotkey_config, get_theme, get_window_size,
+    init_config, save_basic_config, save_hotkey_config, settings_path,
 };
 pub use font::install_fonts;
 pub use hotkey::{HotkeyAction, HotkeyConfig, HotkeyRegistrationError, HotkeyService};

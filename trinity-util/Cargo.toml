@@ -9,8 +9,8 @@ workspace = true
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
-config.workspace = true
 log.workspace = true
 image.workspace = true
 global-hotkey.workspace = true
-toml_edit.workspace = true
+serde.workspace = true
+serde_json.workspace = true

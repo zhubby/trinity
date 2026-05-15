@@ -6,7 +6,7 @@
 //! - Linux: StatusNotifierItem via ksni (D-Bus)
 //!
 //! Tray menu items:
-//! - "Show Settings Panel" → sends TrayEvent::ShowPanel
+//! - "Show Control Panel" → sends TrayEvent::ShowPanel
 //! - "Exit" → sends TrayEvent::Exit
 
 cfg_if::cfg_if! {

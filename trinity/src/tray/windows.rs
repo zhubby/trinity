@@ -35,7 +35,7 @@ pub enum TrayEvent {
 /// Custom message ID for tray icon notifications
 const WM_TRAYICON: UINT = WM_USER + 1;
 
-/// ID for the context menu "Show Settings Panel" item
+/// ID for the context menu "Show Control Panel" item
 const ID_SHOW_PANEL: UINT = 1001;
 /// ID for the context menu "Exit" item
 const ID_EXIT: UINT = 1002;
@@ -101,7 +101,7 @@ unsafe fn show_context_menu(hwnd: HWND) {
 
     let hmenu = CreatePopupMenu();
 
-    let mut panel_text: Vec<u16> = "Show Settings Panel\0".encode_utf16().collect();
+    let mut panel_text: Vec<u16> = "Show Control Panel\0".encode_utf16().collect();
     AppendMenuW(
         hmenu,
         MF_STRING,

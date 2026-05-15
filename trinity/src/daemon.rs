@@ -1,8 +1,8 @@
-//! DaemonApp — settings root viewport that manages the system tray
+//! DaemonApp — control panel root viewport that manages the system tray
 //!
-//! This app uses the settings panel as the root viewport and serves as the daemon backbone:
+//! This app uses the control panel as the root viewport and serves as the daemon backbone:
 //! - Creates and polls the system tray for menu events
-//! - Shows the root Settings Panel viewport when requested
+//! - Shows the root Control Panel viewport when requested
 //! - Closes the app when "Exit" is selected
 //! - Spawns background translator threads (mouse listener, translation engine)
 //! - Shows the Translator popup viewport when a word selection triggers translation
@@ -20,30 +20,31 @@ use trinity_util::{
     hotkey::{HotkeyAction, HotkeyService},
 };
 
+const WINDOW_RESIZE_HIT_ZONE: f32 = 8.0;
+const WINDOW_CORNER_RADIUS: u8 = 12;
+
 fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
 }
 
-fn parked_panel_position() -> egui::Pos2 {
-    [-10_000.0, -10_000.0].into()
-}
-
-/// The background daemon application. Its root viewport is the settings panel;
+/// The background daemon application. Its root viewport is the control panel;
 /// closing the panel hides it while keeping the tray daemon alive.
 pub struct DaemonApp {
     /// Channel to receive tray events (ShowPanel / Exit)
     tray_rx: mpsc::Receiver<TrayEvent>,
-    /// Whether the Settings Panel viewport is currently visible
+    /// Whether the Control Panel viewport is currently visible
     panel_visible: bool,
     /// The PanelApp instance drawn in the root viewport
     panel_app: PanelApp,
     /// Whether the tray has been created (deferred until eframe has initialized)
     tray_created: bool,
-    /// Whether tray creation is pending until the settings panel is hidden
-    tray_pending: bool,
     /// Whether global hotkeys and translation hooks have been started
     background_services_started: bool,
-    /// Number of UI passes completed; first pass only paints the settings panel
+    /// Whether an explicit full application exit has been requested
+    exit_requested: bool,
+    /// Whether the About dialog is currently open
+    about_visible: bool,
+    /// Number of UI passes completed; first pass only paints the control panel
     ui_passes: u8,
     /// Shared translation state for background translator threads
     translator_state: Arc<Mutex<TranslatorState>>,
@@ -78,11 +79,7 @@ impl DaemonApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         install_fonts(&cc.egui_ctx);
 
-        // Apply theme
-        match get_theme().as_str() {
-            "light" => cc.egui_ctx.set_visuals(egui::Visuals::light()),
-            _ => cc.egui_ctx.set_visuals(egui::Visuals::dark()),
-        }
+        apply_theme_preference(&cc.egui_ctx);
         cc.egui_ctx.request_repaint();
 
         // Channels for tray communication — dummy receiver until tray is created
@@ -103,8 +100,9 @@ impl DaemonApp {
             panel_visible: true,
             panel_app,
             tray_created: false,
-            tray_pending: true,
             background_services_started: false,
+            exit_requested: false,
+            about_visible: false,
             ui_passes: 0,
             translator_state,
             translator_popup_tx: popup_tx,
@@ -116,17 +114,34 @@ impl DaemonApp {
     }
 }
 
+fn apply_theme_preference(ctx: &Context) {
+    let preference = match get_theme().as_str() {
+        "system" => egui::ThemePreference::System,
+        "light" => egui::ThemePreference::Light,
+        _ => egui::ThemePreference::Dark,
+    };
+    ctx.set_theme(preference);
+}
+
 impl App for DaemonApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
+
     fn persist_egui_memory(&self) -> bool {
         false
     }
 
     fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        self.ensure_tray_created(ctx);
+
         if self.ui_passes == 0 {
             let (width, height) = get_window_size();
             ctx.send_viewport_cmd(ViewportCommand::InnerSize([width, height].into()));
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition([100.0, 100.0].into()));
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
+            ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
             ctx.send_viewport_cmd(ViewportCommand::Focus);
             ctx.request_repaint();
         }
@@ -206,6 +221,7 @@ impl DaemonApp {
                 }
                 TrayEvent::Exit => {
                     // Close all viewports and exit
+                    self.exit_requested = true;
                     ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                     return true;
@@ -232,8 +248,10 @@ impl DaemonApp {
     fn show_root_panel(&mut self, ui: &mut egui::Ui) {
         let close_requested = ui.input(|input| input.viewport().close_requested());
         if close_requested {
-            self.hide_root_panel(ui.ctx());
-            ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+            if !self.exit_requested {
+                self.hide_root_panel(ui.ctx());
+                ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+            }
             return;
         }
 
@@ -241,36 +259,161 @@ impl DaemonApp {
             return;
         }
 
-        self.panel_app.show_inside(ui);
+        self.show_borderless_shell(ui);
+        self.show_about_window(ui.ctx());
     }
 
     fn show_root_panel_window(&self, ctx: &Context) {
         let (width, height) = get_window_size();
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(ViewportCommand::InnerSize([width, height].into()));
         ctx.send_viewport_cmd(ViewportCommand::OuterPosition([100.0, 100.0].into()));
-        ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
+        ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
         ctx.send_viewport_cmd(ViewportCommand::Focus);
         ctx.request_repaint();
     }
 
-    fn park_root_panel_window(&self, ctx: &Context) {
-        ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
-        ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
-        ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize([1.0, 1.0].into()));
-        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(parked_panel_position()));
-    }
-
     fn hide_root_panel(&mut self, ctx: &Context) {
         self.panel_visible = false;
-        self.park_root_panel_window(ctx);
-        if self.tray_pending {
-            self.tray_pending = false;
-            self.ensure_tray_created(ctx);
-        }
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
         self.ensure_background_services_started(ctx);
+    }
+
+    fn exit_app(&mut self, ctx: &Context) {
+        self.exit_requested = true;
+        ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
+        ctx.send_viewport_cmd(ViewportCommand::Close);
+    }
+
+    fn show_borderless_shell(&mut self, ui: &mut egui::Ui) {
+        if let Some(direction) = window_resize_direction_for_context(ui.ctx()) {
+            ui.ctx().set_cursor_icon(resize_cursor_icon(direction));
+            if ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Primary)) {
+                ui.ctx()
+                    .send_viewport_cmd(ViewportCommand::BeginResize(direction));
+            }
+        }
+
+        let fill = ui.visuals().panel_fill;
+        let stroke = ui.visuals().window_stroke();
+        egui::Frame::new()
+            .fill(fill)
+            .stroke(stroke)
+            .corner_radius(egui::CornerRadius::same(WINDOW_CORNER_RADIUS))
+            .inner_margin(1)
+            .show(ui, |ui| {
+                ui.set_min_size(ui.available_size());
+                egui::MenuBar::new().ui(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Hide Control Panel").clicked() {
+                            self.hide_root_panel(ui.ctx());
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Exit").clicked() {
+                            self.exit_app(ui.ctx());
+                            ui.close();
+                        }
+                    });
+
+                    ui.menu_button("Window", |ui| {
+                        if ui.button("Minimize").clicked() {
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+                            ui.close();
+                        }
+                        if ui.button("Zoom").clicked() {
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
+                            ui.close();
+                        }
+                    });
+
+                    ui.menu_button("Help", |ui| {
+                        if ui.button("About Trinity").clicked() {
+                            self.about_visible = true;
+                            ui.close();
+                        }
+                    });
+
+                    let row_height = ui.spacing().interact_size.y;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), row_height),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            let button_size = egui::vec2(row_height, row_height);
+                            if ui
+                                .add_sized(button_size, egui::Button::new("x"))
+                                .on_hover_text("Hide Control Panel")
+                                .clicked()
+                            {
+                                self.hide_root_panel(ui.ctx());
+                            }
+
+                            if ui
+                                .add_sized(button_size, egui::Button::new("+"))
+                                .on_hover_text("Zoom")
+                                .clicked()
+                            {
+                                ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
+                            }
+
+                            if ui
+                                .add_sized(button_size, egui::Button::new("-"))
+                                .on_hover_text("Minimize")
+                                .clicked()
+                            {
+                                ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+                            }
+
+                            let drag_size = egui::vec2(ui.available_width().max(0.0), row_height);
+                            if drag_size.x > 0.0 {
+                                let (_rect, response) = ui
+                                    .allocate_exact_size(drag_size, egui::Sense::click_and_drag());
+                                let pointer_pressed_on_region = response.hovered()
+                                    && ui.input(|input| {
+                                        input.pointer.button_pressed(egui::PointerButton::Primary)
+                                    });
+                                if pointer_pressed_on_region
+                                    && window_resize_direction_for_context(ui.ctx()).is_none()
+                                {
+                                    ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+                                }
+                            }
+                        },
+                    );
+                });
+
+                self.panel_app.show_inside(ui);
+            });
+    }
+
+    fn show_about_window(&mut self, ctx: &Context) {
+        if !self.about_visible {
+            return;
+        }
+
+        let mut about_visible = self.about_visible;
+        let mut close_requested = false;
+        egui::Window::new("About Trinity")
+            .open(&mut about_visible)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.set_min_width(320.0);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    ui.heading("Trinity");
+                    ui.label("Desktop AI trifecta assistant");
+                    ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(8.0);
+                    if ui.button("Close").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        self.about_visible = about_visible && !close_requested;
     }
 
     fn show_translator_viewport(&mut self, ctx: &Context) {
@@ -366,10 +509,68 @@ impl DaemonApp {
                     self.translator_popup_tx.clone(),
                 ),
                 HotkeyAction::QuitApp => {
-                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                    self.exit_app(ctx);
                 }
             }
         }
+    }
+}
+
+fn window_resize_direction_for_context(ctx: &Context) -> Option<egui::viewport::ResizeDirection> {
+    let (viewport, content_rect, pointer_pos) = ctx.input(|input| {
+        (
+            input.viewport().clone(),
+            input.content_rect(),
+            input.pointer.latest_pos(),
+        )
+    });
+    if viewport.fullscreen == Some(true) || viewport.maximized == Some(true) {
+        return None;
+    }
+    window_resize_direction(pointer_pos?, content_rect, WINDOW_RESIZE_HIT_ZONE)
+}
+
+fn window_resize_direction(
+    pos: egui::Pos2,
+    rect: egui::Rect,
+    hit_zone: f32,
+) -> Option<egui::viewport::ResizeDirection> {
+    use egui::viewport::ResizeDirection;
+
+    if !rect.contains(pos) {
+        return None;
+    }
+
+    let near_left = pos.x <= rect.left() + hit_zone;
+    let near_right = pos.x >= rect.right() - hit_zone;
+    let near_top = pos.y <= rect.top() + hit_zone;
+    let near_bottom = pos.y >= rect.bottom() - hit_zone;
+
+    match (near_left, near_right, near_top, near_bottom) {
+        (true, _, true, _) => Some(ResizeDirection::NorthWest),
+        (_, true, true, _) => Some(ResizeDirection::NorthEast),
+        (true, _, _, true) => Some(ResizeDirection::SouthWest),
+        (_, true, _, true) => Some(ResizeDirection::SouthEast),
+        (true, _, _, _) => Some(ResizeDirection::West),
+        (_, true, _, _) => Some(ResizeDirection::East),
+        (_, _, true, _) => Some(ResizeDirection::North),
+        (_, _, _, true) => Some(ResizeDirection::South),
+        _ => None,
+    }
+}
+
+fn resize_cursor_icon(direction: egui::viewport::ResizeDirection) -> egui::CursorIcon {
+    use egui::{CursorIcon, viewport::ResizeDirection};
+
+    match direction {
+        ResizeDirection::North => CursorIcon::ResizeNorth,
+        ResizeDirection::South => CursorIcon::ResizeSouth,
+        ResizeDirection::East => CursorIcon::ResizeEast,
+        ResizeDirection::West => CursorIcon::ResizeWest,
+        ResizeDirection::NorthEast => CursorIcon::ResizeNorthEast,
+        ResizeDirection::SouthEast => CursorIcon::ResizeSouthEast,
+        ResizeDirection::NorthWest => CursorIcon::ResizeNorthWest,
+        ResizeDirection::SouthWest => CursorIcon::ResizeSouthWest,
     }
 }
 

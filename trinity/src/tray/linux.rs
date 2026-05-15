@@ -58,7 +58,7 @@ impl ksni::Tray for TrinityTray {
             label: "Trinity".into(),
             submenu: vec![
                 ksni::menu::MenuItem::StandardItem(StandardItem {
-                    label: "Show Settings Panel".into(),
+                    label: "Show Control Panel".into(),
                     icon_name: "preferences-system".into(),
                     enabled: true,
                     clicked: Box::new(|_this| {

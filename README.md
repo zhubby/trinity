@@ -7,7 +7,7 @@ A lightweight desktop AI trifecta assistant built with Rust and egui, integratin
 - **Word-Selection Translation** — select any text and get instant DeepL translation
 - **Voice Dictation** — speech-to-text input method *(coming soon)*
 - **Clipboard Management** — history, smart categorization *(coming soon)*
-- **Settings Panel** — configure API, hotkeys, theme *(coming soon)*
+- **Control Panel** — configure API, hotkeys, theme, and service preferences
 - Lightweight, minimal footprint, optimized binary size
 - Automatic line-break cleanup for better PDF translation
 - Cross-platform: Windows, macOS, Linux
@@ -21,7 +21,7 @@ trinity/
 ├── trinity-translator/     # Word-selection translation (lib)
 ├── trinity-clipboard/      # Clipboard management (lib, WIP)
 ├── trinity-dictation/      # Voice dictation input (lib, WIP)
-├── trinity-panel/          # Settings and control panel (lib, WIP)
+├── trinity-panel/          # Control panel (lib)
 ├── trinity-util/           # Shared utilities: config, fonts, icons
 ├── Cargo.toml              # Workspace configuration
 └── LICENSE                 # MIT
@@ -33,7 +33,7 @@ trinity/
 | `trinity-translator` | DeepL translation, mouse/keyboard hooks, egui UI | Active |
 | `trinity-clipboard` | Clipboard history & smart paste | Stub |
 | `trinity-dictation` | Voice recognition dictation | Stub |
-| `trinity-panel` | Settings panel GUI | Stub |
+| `trinity-panel` | Control panel GUI | Active |
 | `trinity-util` | Config, fonts, icons, theme helpers | Active |
 
 ## Usage
@@ -76,26 +76,27 @@ Requires Rust nightly (edition 2024). The toolchain is pinned in `rust-toolchain
 
 ## Configuration
 
-Settings are loaded from a file:
+Settings are loaded from `~/.trinity/config.json`. Trinity creates the file with defaults on first launch.
 
-- **Linux/macOS**: `/etc/translator/settings` (global hotkeys require a supported desktop environment; Linux support is X11-only)
-- **Windows**: `<exe_dir>/settings`
+Example:
 
-Example (`settings.toml`):
-
-```toml
-api = "https://deepl.zu1k.com/translate"
-
-[window]
-size.width = 500
-size.height = 200
-font_size_plus = 0
-theme = "dark"    # "dark" or "light"
-
-[hotkey]
-open_translator = "Alt+Q"
-translate_selection = "CmdOrCtrl+Shift+T"
-quit_app = "CmdOrCtrl+Shift+D"
+```json
+{
+  "api": "https://deepl.zu1k.com/translate",
+  "window": {
+    "size": {
+      "width": 500.0,
+      "height": 200.0
+    },
+    "font_size_plus": 0.0,
+    "theme": "dark"
+  },
+  "hotkey": {
+    "open_translator": "Alt+Q",
+    "translate_selection": "CmdOrCtrl+Shift+T",
+    "quit_app": "CmdOrCtrl+Shift+D"
+  }
+}
 ```
 
 ## License

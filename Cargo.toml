@@ -20,15 +20,17 @@ unexpected_cfgs = "allow"
 [workspace.dependencies]
 eframe = "0.34"
 egui = "0.34"
+egui-theme-switch = "0.7.0"
+egui_dock = "0.19.1"
 cfg-if = "1"
-config = "0.15"
 deepl = { package = "deepl-api-client", version = "0.2" }
 log = "0.4"
 rdev = "0.5"
 cli-clipboard = "0.4"
 global-hotkey = "0.8"
 image = "0.25"
-toml_edit = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 trinity-util = { path = "trinity-util" }
 trinity-panel = { path = "trinity-panel" }
 trinity = { path = "trinity" }

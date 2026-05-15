@@ -1,85 +1,68 @@
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex},
 };
 
-use config::Config;
 use log::warn;
-use toml_edit::{DocumentMut, value};
 
-use crate::hotkey::HotkeyConfig;
+use crate::{
+    hotkey::HotkeyConfig,
+    persistence::{self, AppConfig},
+};
 
-/// Global settings, lazily initialized
-pub static SETTINGS: LazyLock<Mutex<Config>> = LazyLock::new(|| Mutex::new(Config::default()));
+/// Global settings, lazily initialized from `~/.trinity/config.json`.
+pub static SETTINGS: LazyLock<Mutex<AppConfig>> =
+    LazyLock::new(|| Mutex::new(AppConfig::default()));
 
 #[must_use]
 pub fn settings_path() -> PathBuf {
-    #[cfg(not(target_os = "windows"))]
-    {
-        PathBuf::from("/etc/translator/settings")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::env::current_exe()
-            .map(|path| match path.parent() {
-                Some(parent) => parent.join("settings"),
-                None => PathBuf::from("settings"),
-            })
-            .unwrap_or_else(|_| PathBuf::from("settings"))
-    }
+    persistence::config_path()
 }
 
 pub fn init_config() {
-    let settings_path = settings_path();
-    let settings_path = settings_path.to_string_lossy();
-
-    let builder = Config::builder().add_source(config::File::with_name(&settings_path));
-    match builder.build() {
-        Ok(config) => *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = config,
-        Err(err) => warn!("settings merge failed, use default settings, err: {}", err),
+    if let Err(err) = init_config_from_path(&settings_path()) {
+        warn!("config load failed, using default settings, err: {}", err);
+        *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = AppConfig::default();
     }
 }
 
 pub fn get_api() -> String {
-    let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    settings
-        .get_string("api")
-        .unwrap_or("https://deepl.zu1k.com/translate".to_string())
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .api
+        .clone()
 }
 
 pub fn get_window_size() -> (f32, f32) {
     let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    (
-        settings.get_float("window.size.width").unwrap_or(500.0) as f32,
-        settings.get_float("window.size.height").unwrap_or(200.0) as f32,
-    )
+    (settings.window.size.width, settings.window.size.height)
+}
+
+pub fn get_font_size_plus() -> f32 {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .window
+        .font_size_plus
 }
 
 pub fn get_theme() -> String {
-    let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    settings
-        .get_string("window.theme")
-        .unwrap_or("dark".to_string())
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .window
+        .theme
+        .clone()
 }
 
 #[must_use]
 pub fn get_hotkey_config() -> HotkeyConfig {
-    let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    HotkeyConfig {
-        open_translator: settings
-            .get_string("hotkey.open_translator")
-            .or_else(|_| settings.get_string("hotkey.launch"))
-            .unwrap_or_else(|_| HotkeyConfig::DEFAULT_OPEN_TRANSLATOR.to_string()),
-        translate_selection: settings
-            .get_string("hotkey.translate_selection")
-            .unwrap_or_else(|_| HotkeyConfig::DEFAULT_TRANSLATE_SELECTION.to_string()),
-        quit_app: settings
-            .get_string("hotkey.quit_app")
-            .or_else(|_| settings.get_string("hotkey.quit"))
-            .unwrap_or_else(|_| HotkeyConfig::DEFAULT_QUIT_APP.to_string()),
-    }
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .hotkey
+        .clone()
 }
 
 pub fn save_hotkey_config(config: &HotkeyConfig) -> std::io::Result<()> {
@@ -88,73 +71,150 @@ pub fn save_hotkey_config(config: &HotkeyConfig) -> std::io::Result<()> {
     Ok(())
 }
 
-fn save_hotkey_config_to_path(path: &Path, config: &HotkeyConfig) -> std::io::Result<()> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(err) => return Err(err),
-    };
-    let mut doc = content
-        .parse::<DocumentMut>()
-        .unwrap_or_else(|_| DocumentMut::new());
+pub fn save_basic_config(api_url: &str, theme: &str) -> std::io::Result<()> {
+    save_basic_config_to_path(&settings_path(), api_url, theme)?;
+    init_config();
+    Ok(())
+}
 
-    doc["hotkey"]["open_translator"] = value(&config.open_translator);
-    doc["hotkey"]["translate_selection"] = value(&config.translate_selection);
-    doc["hotkey"]["quit_app"] = value(&config.quit_app);
+fn init_config_from_path(path: &Path) -> std::io::Result<()> {
+    let config = persistence::load_config_from_path(path)?;
+    *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = config;
+    Ok(())
+}
 
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, doc.to_string())
+fn save_basic_config_to_path(path: &Path, api_url: &str, theme: &str) -> std::io::Result<()> {
+    let mut config = persistence::load_config_from_path(path)?;
+    config.api = api_url.to_string();
+    config.window.theme = theme.to_string();
+    persistence::save_config_to_path(path, &config)
+}
+
+fn save_hotkey_config_to_path(path: &Path, hotkey: &HotkeyConfig) -> std::io::Result<()> {
+    let mut config = persistence::load_config_from_path(path)?;
+    config.hotkey = hotkey.clone();
+    persistence::save_config_to_path(path, &config)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::persistence::{WindowConfig, WindowSize};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
-    fn save_hotkey_config_updates_only_hotkey_fields() {
-        let path = temp_settings_path();
-        fs::write(
-            &path,
-            r#"api = "https://example.test"
-
-[hotkey]
-launch = "Alt+Q"
-
-[window]
-theme = "light"
-"#,
-        )
-        .unwrap_or_else(|err| panic!("failed to write test settings: {err}"));
-
-        let config = HotkeyConfig {
-            open_translator: "Alt+W".to_string(),
-            translate_selection: "CmdOrCtrl+Shift+T".to_string(),
-            quit_app: "CmdOrCtrl+Shift+D".to_string(),
+    fn init_config_reads_json_values() {
+        let path = temp_config_path();
+        let config = AppConfig {
+            api: "https://json.example.test".to_string(),
+            window: WindowConfig {
+                size: WindowSize {
+                    width: 640.0,
+                    height: 360.0,
+                },
+                font_size_plus: 2.0,
+                theme: "light".to_string(),
+            },
+            hotkey: HotkeyConfig {
+                open_translator: "Alt+W".to_string(),
+                translate_selection: "CmdOrCtrl+Shift+Y".to_string(),
+                quit_app: "CmdOrCtrl+Shift+U".to_string(),
+            },
         };
-        save_hotkey_config_to_path(&path, &config)
-            .unwrap_or_else(|err| panic!("failed to save hotkey config: {err}"));
+        persistence::save_config_to_path(&path, &config)
+            .unwrap_or_else(|err| panic!("failed to save test config: {err}"));
 
-        let saved = fs::read_to_string(&path)
-            .unwrap_or_else(|err| panic!("failed to read saved settings: {err}"));
-        assert!(saved.contains(r#"api = "https://example.test""#));
-        assert!(saved.contains(r#"theme = "light""#));
-        assert!(saved.contains(r#"open_translator = "Alt+W""#));
-        assert!(saved.contains(r#"translate_selection = "CmdOrCtrl+Shift+T""#));
-        assert!(saved.contains(r#"quit_app = "CmdOrCtrl+Shift+D""#));
+        init_config_from_path(&path).unwrap_or_else(|err| panic!("failed to init config: {err}"));
+
+        assert_eq!(get_api(), "https://json.example.test");
+        assert_eq!(get_theme(), "light");
+        assert_eq!(get_window_size(), (640.0, 360.0));
+        assert_eq!(get_font_size_plus(), 2.0);
+        assert_eq!(get_hotkey_config(), config.hotkey);
 
         let _ = fs::remove_file(path);
     }
 
-    fn temp_settings_path() -> PathBuf {
+    #[test]
+    fn save_hotkey_config_updates_only_hotkey_fields() {
+        let path = temp_config_path();
+        let original = AppConfig {
+            api: "https://example.test".to_string(),
+            window: WindowConfig {
+                theme: "light".to_string(),
+                ..Default::default()
+            },
+            hotkey: HotkeyConfig {
+                open_translator: "Alt+Q".to_string(),
+                ..Default::default()
+            },
+        };
+        persistence::save_config_to_path(&path, &original)
+            .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
+
+        let hotkey = HotkeyConfig {
+            open_translator: "Alt+W".to_string(),
+            translate_selection: "CmdOrCtrl+Shift+T".to_string(),
+            quit_app: "CmdOrCtrl+Shift+D".to_string(),
+        };
+        save_hotkey_config_to_path(&path, &hotkey)
+            .unwrap_or_else(|err| panic!("failed to save hotkey config: {err}"));
+
+        let saved = persistence::load_config_from_path(&path)
+            .unwrap_or_else(|err| panic!("failed to read saved config: {err}"));
+        assert_eq!(saved.api, original.api);
+        assert_eq!(saved.window, original.window);
+        assert_eq!(saved.hotkey, hotkey);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_basic_config_updates_only_api_and_theme() {
+        let path = temp_config_path();
+        let original = AppConfig {
+            api: "https://old.example.test".to_string(),
+            window: WindowConfig {
+                size: WindowSize {
+                    width: 700.0,
+                    height: 300.0,
+                },
+                font_size_plus: 1.0,
+                theme: "dark".to_string(),
+            },
+            hotkey: HotkeyConfig {
+                open_translator: "Alt+Q".to_string(),
+                translate_selection: "CmdOrCtrl+Shift+T".to_string(),
+                quit_app: "CmdOrCtrl+Shift+D".to_string(),
+            },
+        };
+        persistence::save_config_to_path(&path, &original)
+            .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
+
+        save_basic_config_to_path(&path, "https://new.example.test", "light")
+            .unwrap_or_else(|err| panic!("failed to save basic config: {err}"));
+
+        let saved = persistence::load_config_from_path(&path)
+            .unwrap_or_else(|err| panic!("failed to read saved config: {err}"));
+        assert_eq!(saved.api, "https://new.example.test");
+        assert_eq!(saved.window.theme, "light");
+        assert_eq!(saved.window.size, original.window.size);
+        assert_eq!(saved.window.font_size_plus, original.window.font_size_plus);
+        assert_eq!(saved.hotkey, original.hotkey);
+
+        let _ = fs::remove_file(path);
+    }
+
+    fn temp_config_path() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or_default();
-        std::env::temp_dir().join(format!("trinity-settings-{nanos}.toml"))
+        std::env::temp_dir()
+            .join(format!("trinity-cfg-{nanos}"))
+            .join("config.json")
     }
 }

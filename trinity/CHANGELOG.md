@@ -4,8 +4,13 @@
 
 ### Changed
 - Package renamed from `trinity-gui` to `trinity` (directory `trinity/`).
+- User-facing panel naming now uses Control Panel in the window title and tray menus.
 - Settings and translator viewports now track close requests independently so each window can be closed and reopened without affecting the other.
 - The settings panel is now the root viewport and is shown on startup.
+- The Control Panel now uses a borderless egui menu bar with window action buttons, drag handling, and edge resize support.
+- The Control Panel root window now uses a transparent viewport with a rounded egui shell.
+- The system tray is created as soon as the eframe daemon starts instead of waiting for the Control Panel to be hidden.
+- The daemon now applies the saved system/dark/light theme preference on startup.
 - Window position persistence is disabled so previously hidden/off-screen panel positions do not affect startup visibility.
 - macOS no longer switches the app to accessory activation policy when the settings panel is visible.
 - Global hotkeys and mouse-listener startup are deferred until the settings panel is hidden, keeping the startup panel responsive.
@@ -14,11 +19,12 @@
 - Translator popup remains a secondary viewport triggered by hotkeys or selection translation.
 
 ### Fixed
+- Tray "Show Control Panel" now restores the hidden root viewport directly instead of trying to recover an off-screen parked window.
 - macOS tray icon now uses the dedicated `tray.png` template asset, validates native image creation, and falls back to a text status item when the PNG cannot be decoded.
 - macOS tray status item and menu delegate are retained for the lifetime of the app, preventing the menu bar icon from disappearing after startup.
 - Settings and translator viewports are opened from the root `ui()` path again, avoiding freezes from creating child viewports inside `App::logic()`.
 - Settings panel close requests now hide the root viewport instead of exiting the daemon.
-- The settings panel close button now parks the root viewport off-screen instead of exiting the daemon.
+- The settings panel close button now hides the root viewport instead of parking it off-screen or exiting the daemon.
 
 ### Added
 - CLI argument `--log-level` via `clap` (default: `debug`). Supported levels: off, error, warn, info, debug, trace.

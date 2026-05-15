@@ -4,6 +4,7 @@ use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{HotKey, HotKeyParseError},
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HotkeyAction {
@@ -12,10 +13,13 @@ pub enum HotkeyAction {
     QuitApp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotkeyConfig {
+    #[serde(default = "default_open_translator")]
     pub open_translator: String,
+    #[serde(default = "default_translate_selection")]
     pub translate_selection: String,
+    #[serde(default = "default_quit_app")]
     pub quit_app: String,
 }
 
@@ -49,6 +53,18 @@ impl HotkeyConfig {
         }
         Ok(())
     }
+}
+
+fn default_open_translator() -> String {
+    HotkeyConfig::DEFAULT_OPEN_TRANSLATOR.to_string()
+}
+
+fn default_translate_selection() -> String {
+    HotkeyConfig::DEFAULT_TRANSLATE_SELECTION.to_string()
+}
+
+fn default_quit_app() -> String {
+    HotkeyConfig::DEFAULT_QUIT_APP.to_string()
 }
 
 impl Default for HotkeyConfig {

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::cfg::SETTINGS;
 use eframe::egui::{self, FontDefinitions, FontFamily, TextStyle};
 use egui::{FontData, FontId};
 
@@ -28,10 +27,7 @@ pub fn install_fonts(egui_ctx: &egui::Context) {
 
     egui_ctx.set_fonts(fonts);
 
-    let font_size_plus = {
-        let settings = SETTINGS.lock().unwrap();
-        settings.get_float("window.font_size_plus").unwrap_or(0.0) as f32
-    };
+    let font_size_plus = crate::cfg::get_font_size_plus();
 
     let mut style = (*egui_ctx.global_style()).clone();
     style.text_styles = [

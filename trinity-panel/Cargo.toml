@@ -10,4 +10,6 @@ workspace = true
 trinity-util = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
+egui-theme-switch = { workspace = true }
+egui_dock = { workspace = true }
 log = { workspace = true }
