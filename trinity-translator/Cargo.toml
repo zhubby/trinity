@@ -15,4 +15,3 @@ deepl.workspace = true
 log.workspace = true
 rdev.workspace = true
 cli-clipboard.workspace = true
-tauri-hotkey = { git = "https://github.com/zu1k/tauri-hotkey-rs", branch = "master" }

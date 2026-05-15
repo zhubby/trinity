@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-15
+
+### Added
+- Editable hotkey settings for opening the translator, translating the selection, and quitting Trinity.
+- Save flow that validates shortcuts, persists settings, and asks the daemon to reload hotkeys immediately.
+
 ## 2025-01-30
 
 ### Added

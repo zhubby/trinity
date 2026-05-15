@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-05-16
+
+### Changed
+- Package renamed from `trinity-gui` to `trinity` (directory `trinity/`).
+- Settings and translator viewports now track close requests independently so each window can be closed and reopened without affecting the other.
+
+### Added
+- CLI argument `--log-level` via `clap` (default: `debug`). Supported levels: off, error, warn, info, debug, trace.
+- `env_logger` integration for runtime log-level filtering.
+
+## 2026-05-15
+
+### Added
+- Application-wide system hotkey service in the daemon for opening the translator, translating the current selection, and quitting.
+- Panel-to-daemon hotkey reload channel so saved shortcut changes take effect without restart.
+
 ## 2025-01-30
 
 ### Changed
@@ -11,11 +27,11 @@
 - `trinity_translator::run()` is no longer called from `main.rs`; translation logic runs in daemon-managed background threads.
 
 ### Added
-- `tray` module (`trinity-gui/src/tray/`) with platform-specific implementations:
+- `tray` module (`trinity/src/tray/`) with platform-specific implementations:
   - macOS: NSStatusItem via `objc` + `cocoa` crates
   - Windows: Shell_NotifyIcon via `winapi` crate (message-only window in background thread)
   - Linux: StatusNotifierItem via `ksni` crate (D-Bus)
-- `DaemonApp` (`trinity-gui/src/daemon.rs`) — invisible main eframe app that orchestrates tray and background tasks.
+- `DaemonApp` (`trinity/src/daemon.rs`) — invisible main eframe app that orchestrates tray and background tasks.
 - `PanelApp::new_from_context()` and `PanelApp::show_inside()` methods in `trinity-panel` for daemon viewport integration.
 - Basic settings panel UI with API URL, theme selection, hotkey placeholder, and about section.
 - `PNG_BYTES` static in `trinity-util/src/icon.rs` for tray icon creation.

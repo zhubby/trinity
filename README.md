@@ -17,7 +17,7 @@ A lightweight desktop AI trifecta assistant built with Rust and egui, integratin
 
 ```
 trinity/
-├── trinity-gui/            # Binary entry point (main)
+├── trinity/                # Binary entry point (main)
 ├── trinity-translator/     # Word-selection translation (lib)
 ├── trinity-clipboard/      # Clipboard management (lib, WIP)
 ├── trinity-dictation/      # Voice dictation input (lib, WIP)
@@ -29,7 +29,7 @@ trinity/
 
 | Crate | Role | Status |
 |---|---|---|
-| `trinity-gui` | Binary entry, orchestrates all modules | Active |
+| `trinity` | Binary entry, orchestrates all modules | Active |
 | `trinity-translator` | DeepL translation, mouse/keyboard hooks, egui UI | Active |
 | `trinity-clipboard` | Clipboard history & smart paste | Stub |
 | `trinity-dictation` | Voice recognition dictation | Stub |
@@ -40,7 +40,7 @@ trinity/
 
 ### Windows
 
-Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. `Esc` closes the window. `Ctrl+Shift+D` exits completely.
+Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `CmdOrCtrl+Shift+T` to translate the current selection. `Esc` closes translator windows. `CmdOrCtrl+Shift+D` exits completely.
 
 ### macOS / Linux
 
@@ -60,7 +60,7 @@ Launch the binary — the translator window appears immediately. Select text any
 cargo build --workspace --release
 
 # Run the application
-cargo run --release -p trinity-gui
+cargo run --release -p trinity
 
 # Lint (strict)
 cargo clippy --workspace -- -D warnings
@@ -78,7 +78,7 @@ Requires Rust nightly (edition 2024). The toolchain is pinned in `rust-toolchain
 
 Settings are loaded from a file:
 
-- **Linux/macOS**: `/etc/translator/settings`
+- **Linux/macOS**: `/etc/translator/settings` (global hotkeys require a supported desktop environment; Linux support is X11-only)
 - **Windows**: `<exe_dir>/settings`
 
 Example (`settings.toml`):
@@ -93,8 +93,9 @@ font_size_plus = 0
 theme = "dark"    # "dark" or "light"
 
 [hotkey]
-launch = "ALT+Q"
-quit = "CMDORCTRL+SHIFT+D"
+open_translator = "Alt+Q"
+translate_selection = "CmdOrCtrl+Shift+T"
+quit_app = "CmdOrCtrl+Shift+D"
 ```
 
 ## License

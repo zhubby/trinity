@@ -4,18 +4,18 @@
 
 This repository is a Rust workspace. Crates are split by responsibility:
 
-- `trinity-gui`: binary entry point, orchestrates all modules at startup.
+- `trinity` (directory `trinity/`): binary entry point, orchestrates all modules at startup.
 - `trinity-translator`: word-selection translation engine — DeepL API, mouse/keyboard hooks, egui UI, platform-specific run loops.
 - `trinity-clipboard`: clipboard management GUI (history, smart paste) — currently a stub.
 - `trinity-dictation`: voice dictation GUI / speech-to-text input — currently a stub.
 - `trinity-panel`: settings and control panel GUI — currently a stub.
 - `trinity-util`: shared utilities — config loading, font installation, icon loading, theme helpers.
 
-Each GUI module (`translator`, `clipboard`, `dictation`, `panel`) is an independent egui-based panel that can be launched by `trinity-gui`. Shared infrastructure (fonts, icons, config, theme) lives in `trinity-util` so no GUI crate duplicates resource-loading logic.
+Each GUI module (`translator`, `clipboard`, `dictation`, `panel`) is an independent egui-based panel that can be launched by `trinity` (the binary crate in `trinity/`). Shared infrastructure (fonts, icons, config, theme) lives in `trinity-util` so no GUI crate duplicates resource-loading logic.
 
 Keep new code in the crate that owns the domain concern. Avoid cross-crate leakage of UI-specific logic into utility crates, and avoid embedding platform-specific lifecycle code outside the `cfg(target_os)` boundaries in `trinity-translator`.
 
-Each lib crate must expose a clean public API through `lib.rs` with `pub use` re-exports. The binary crate (`trinity-gui`) is the sole entry point and must not contain business logic — it delegates to the lib crates.
+Each lib crate must expose a clean public API through `lib.rs` with `pub use` re-exports. The binary crate (`trinity`, in directory `trinity/`) is the sole entry point and must not contain business logic — it delegates to the lib crates.
 
 ## Build, Test, and Development Commands
 
@@ -108,7 +108,7 @@ All GUI modules use `eframe` 0.34 / `egui` 0.34. Follow these rules when modifyi
 Platform differences are confined to `trinity-translator/src/unix.rs` and `trinity-translator/src/windows.rs`:
 
 - **Unix/macOS**: `run()` calls `init_config()` then `eframe::run_native` directly.
-- **Windows**: `run()` enters a hotkey loop (`HotkeySetting` + `tauri-hotkey`), launches the window on hotkey press with `run_and_return` semantics, re-registers hotkeys after window closes.
+- **Windows**: standalone translator hotkeys use the shared `trinity_util::hotkey` service; the main `trinity` daemon (in `trinity/`) owns application-wide hotkey registration and panel-triggered reloads.
 
 Do not spread platform `cfg` annotations across multiple files. When adding new platform-specific behavior, extend the existing `unix.rs` / `windows.rs` split or use `cfg_if::cfg_if!` in `lib.rs`.
 

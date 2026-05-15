@@ -2,11 +2,6 @@ use egui::{self, epaint::Color32};
 use std::sync::{Arc, Mutex, mpsc};
 use trinity_util::{cfg::get_theme, font};
 
-#[cfg(target_os = "windows")]
-use crate::hotkey::HotkeySetting;
-#[cfg(target_os = "windows")]
-use std::sync::mpsc::Receiver;
-
 pub const LINK_COLOR_DOING: Color32 = Color32::GREEN;
 pub const LINK_COLOR_COMMON: Color32 = Color32::GRAY;
 
@@ -24,11 +19,6 @@ pub struct MyApp {
     lang_list: Vec<deepl::Lang>,
     task_chan: mpsc::SyncSender<()>,
     show_box: bool,
-
-    #[cfg(target_os = "windows")]
-    hk_setting: HotkeySetting,
-    #[cfg(target_os = "windows")]
-    hotkey_rx: Receiver<()>,
 }
 
 impl MyApp {
@@ -44,13 +34,6 @@ impl MyApp {
             _ => cc.egui_ctx.set_visuals(egui::Visuals::dark()),
         }
 
-        #[cfg(target_os = "windows")]
-        let (hotkey_tx, hotkey_rx) = mpsc::sync_channel(1);
-        #[cfg(target_os = "windows")]
-        let mut hk_setting = HotkeySetting::default();
-        #[cfg(target_os = "windows")]
-        hk_setting.register_hotkey(hotkey_tx);
-
         Self {
             state,
 
@@ -58,11 +41,6 @@ impl MyApp {
             lang_list: deepl::Lang::lang_list(),
             task_chan,
             show_box: false,
-
-            #[cfg(target_os = "windows")]
-            hk_setting,
-            #[cfg(target_os = "windows")]
-            hotkey_rx,
         }
     }
 }
@@ -76,11 +54,6 @@ impl eframe::App for MyApp {
             lang_list,
             task_chan,
             show_box,
-
-            #[cfg(target_os = "windows")]
-            hk_setting,
-            #[cfg(target_os = "windows")]
-            hotkey_rx,
         } = self;
         let mut state = state.lock().unwrap();
 
@@ -90,14 +63,7 @@ impl eframe::App for MyApp {
         let ctx = ui.ctx().clone();
 
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            #[cfg(target_os = "windows")]
-            hk_setting.unregister_all();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-
-        #[cfg(target_os = "windows")]
-        if hotkey_rx.try_recv().is_ok() {
-            _ = task_chan.send(());
         }
 
         egui::CentralPanel::default().show_inside(ui, |ui| {

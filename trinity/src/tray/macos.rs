@@ -17,7 +17,10 @@ use cocoa::{
     foundation::NSString,
 };
 use objc::{class, declare::ClassDecl, msg_send, runtime::Class, sel, sel_impl};
-use std::sync::{LazyLock, Mutex, mpsc};
+use std::{
+    ffi::CString,
+    sync::{LazyLock, Mutex, mpsc},
+};
 
 /// Events emitted by the tray menu
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,10 +76,18 @@ fn register_delegate_class() -> &'static Class {
 
 // ── Helper: convert Rust str → NSString ─────────────────────────────
 
+/// Convert a Rust `&str` into a macOS `NSString` object.
+///
+/// Uses `CString` to ensure the string is null-terminated before
+/// passing it to `initWithUTF8String:` — Rust `&str` is NOT
+/// null-terminated, so passing `s.as_ptr()` directly causes
+/// `strlen` inside `CFStringCreateWithCString` to read past the
+/// string boundary, resulting in `EXC_BAD_ACCESS` / segfault.
 fn ns_string(s: &str) -> id {
+    let c_str = CString::new(s).unwrap_or_else(|_| CString::new("<invalid>").unwrap());
     unsafe {
         let ns_string: id = NSString::alloc(nil);
-        msg_send![ns_string, initWithUTF8String: s.as_ptr() as *const i8]
+        msg_send![ns_string, initWithUTF8String: c_str.as_ptr()]
     }
 }
 

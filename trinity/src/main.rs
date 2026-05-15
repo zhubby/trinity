@@ -1,4 +1,4 @@
-//! Trinity GUI - Application entry point
+//! Trinity — Application entry point
 //!
 //! The application starts as a **background daemon** — no window is shown.
 //! A system tray icon appears in the OS status bar with a menu:
@@ -16,7 +16,36 @@
 mod daemon;
 mod tray;
 
+use clap::Parser;
+use log::LevelFilter;
+
+/// Trinity — Desktop AI trifecta assistant
+#[derive(Parser)]
+#[command(name = "trinity", version, about)]
+struct Cli {
+    /// Log level (off, error, warn, info, debug, trace)
+    #[arg(long, default_value = "debug", value_name = "LEVEL")]
+    log_level: String,
+}
+
 fn main() {
+    let cli = Cli::parse();
+
+    // Initialize logger with the configured level
+    let level = match cli.log_level.to_lowercase() {
+        s if s == "off" => LevelFilter::Off,
+        s if s == "error" => LevelFilter::Error,
+        s if s == "warn" => LevelFilter::Warn,
+        s if s == "info" => LevelFilter::Info,
+        s if s == "debug" => LevelFilter::Debug,
+        s if s == "trace" => LevelFilter::Trace,
+        other => {
+            eprintln!("Unknown log level '{other}', using debug");
+            LevelFilter::Debug
+        }
+    };
+    env_logger::Builder::new().filter_level(level).init();
+
     // Initialize shared configuration
     trinity_util::init_config();
 

@@ -4,7 +4,7 @@
 //! - Mouse selection detection and text extraction
 //! - DeepL translation API calls
 //! - Translation result UI display
-//! - Multi-platform hotkey registration and management
+//! - Selection-copy helpers used by application-level hotkeys
 //!
 //! # Usage
 //!

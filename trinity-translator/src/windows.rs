@@ -8,11 +8,13 @@ use std::{
 
 use trinity_util::{
     cfg::{get_api, get_window_size, init_config},
+    get_hotkey_config,
+    hotkey::{HotkeyAction, HotkeyService},
     icon::get_icon_data,
 };
 
 use crate::{
-    hotkey::{HotkeySetting, ctrl_c},
+    hotkey::ctrl_c,
     mouse::MouseState,
     ui::{self, LINK_COLOR_COMMON, LINK_COLOR_DOING, State},
 };
@@ -138,23 +140,20 @@ fn setup_ui_task(cc: &CreationContext) -> Box<dyn App> {
 
 pub fn run() {
     init_config();
-
-    let (hotkey_tx, hotkey_rx) = mpsc::sync_channel(1);
-
-    let mut hotkey_settings = HotkeySetting::default();
-    hotkey_settings.register_hotkey(hotkey_tx.clone());
+    let mut hotkey_service = HotkeyService::new(&get_hotkey_config())
+        .unwrap_or_else(|err| panic!("failed to initialize hotkeys: {err}"));
 
     loop {
-        match hotkey_rx.recv() {
-            Ok(_) => {
-                hotkey_settings.unregister_all();
-                launch_window();
-                hotkey_settings.register_hotkey(hotkey_tx.clone());
-            }
-            Err(err) => {
-                panic!("{}", err)
+        for action in hotkey_service.poll_actions() {
+            match action {
+                HotkeyAction::OpenTranslator => {
+                    launch_window();
+                }
+                HotkeyAction::QuitApp => std::process::exit(0),
+                HotkeyAction::TranslateSelection => {}
             }
         }
+        sleep(Duration::from_millis(100));
     }
 }
 

@@ -1,5 +1,5 @@
 [package]
-name = "trinity-gui"
+name = "trinity"
 version.workspace = true
 edition.workspace = true
 
@@ -19,6 +19,8 @@ log = { workspace = true }
 rdev = { workspace = true }
 deepl = { workspace = true }
 cli-clipboard = { workspace = true }
+clap = { workspace = true }
+env_logger = { workspace = true }
 
 # Platform-specific tray dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
