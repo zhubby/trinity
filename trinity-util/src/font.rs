@@ -12,7 +12,7 @@ pub fn install_fonts(egui_ctx: &egui::Context) {
     fonts.font_data.insert(
         "LXGWWenKai-Regular".to_owned(),
         Arc::new(FontData::from_static(include_bytes!(
-            "../res/LXGWWenKai-Regular.ttf"
+            "../assets/LXGWWenKai-Regular.ttf"
         ))),
     );
     fonts

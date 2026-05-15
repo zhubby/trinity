@@ -58,10 +58,14 @@ fn main() {
 }
 
 fn launch_daemon() {
-    // The daemon's main viewport is invisible — it serves only as the
-    // event loop backbone. All user-facing windows are secondary viewports
-    // triggered by tray menu or background threads.
-    let viewport = egui::ViewportBuilder::default().with_visible(false); // hidden — no window shown on startup
+    let (width, height) = trinity_util::cfg::get_window_size();
+    // The root viewport is the settings panel. It starts hidden and is shown
+    // from the tray; closing it hides the panel instead of exiting the daemon.
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("Trinity Settings")
+        .with_inner_size([width, height])
+        .with_resizable(true)
+        .with_visible(false);
 
     let native_options = eframe::NativeOptions {
         viewport,

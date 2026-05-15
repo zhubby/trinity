@@ -5,18 +5,28 @@
 //! - "Exit" → TrayEvent::Exit
 //!
 //! This must be called AFTER eframe has initialized NSApplication,
-//! so it's invoked in the first `DaemonApp::ui()` call.
+//! so it's invoked after the daemon starts running its `logic()` loop.
 //!
 //! Note: The `cocoa` crate is deprecated in favor of `objc2-app-kit`.
 //! We use `cocoa` for now as it's simpler and well-tested; migration
 //! to `objc2` ecosystem is planned for a future release.
 
 use cocoa::{
-    appkit::{NSMenu, NSStatusBar, NSVariableStatusItemLength},
+    appkit::{
+        NSApp, NSApplication, NSApplicationActivationPolicyAccessory, NSMenu, NSStatusBar,
+        NSVariableStatusItemLength,
+    },
     base::{id, nil},
-    foundation::NSString,
+    foundation::{NSSize, NSString},
 };
-use objc::{class, declare::ClassDecl, msg_send, runtime::Class, sel, sel_impl};
+use log::warn;
+use objc::{
+    class,
+    declare::ClassDecl,
+    msg_send,
+    runtime::{Class, YES},
+    sel, sel_impl,
+};
 use std::{
     ffi::CString,
     sync::{LazyLock, Mutex, mpsc},
@@ -30,12 +40,23 @@ pub enum TrayEvent {
 }
 
 /// Global channel for tray → daemon communication.
-/// Tray menu actions write here; DaemonApp::ui() reads every frame.
+/// Tray menu actions write here; DaemonApp::logic() reads every frame.
 static TRAY_CHANNEL: LazyLock<Mutex<Option<mpsc::Sender<TrayEvent>>>> =
     LazyLock::new(|| Mutex::new(None));
 
 /// Whether the tray has already been created (avoid duplicate status items)
 static TRAY_CREATED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+
+/// Strong references to Objective-C tray objects that must outlive `create_tray`.
+///
+/// AppKit does not reliably keep the status item or menu target alive for us,
+/// so dropping these local `id`s can make the menu bar icon disappear.
+static TRAY_OBJECTS: LazyLock<Mutex<Option<TrayObjects>>> = LazyLock::new(|| Mutex::new(None));
+
+struct TrayObjects {
+    _status_item: usize,
+    _delegate: usize,
+}
 
 // ── Objective-C delegate class ───────────────────────────────────────
 
@@ -97,13 +118,15 @@ fn ns_string(s: &str) -> id {
 ///
 /// Returns a `Receiver<TrayEvent>` so `DaemonApp` can poll tray events each frame.
 /// Call this **once**, after eframe's NSApplication is running
-/// (i.e. inside `DaemonApp::ui()` on the first frame).
+/// (i.e. from the daemon after eframe has initialized).
 pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let was_created = *TRAY_CREATED.lock().unwrap_or_else(|e| e.into_inner());
     if was_created {
         return mpsc::channel().1; // unused dummy
     }
     *TRAY_CREATED.lock().unwrap_or_else(|e| e.into_inner()) = true;
+
+    let _: bool = unsafe { NSApp().setActivationPolicy_(NSApplicationActivationPolicyAccessory) };
 
     let (real_tx, rx) = mpsc::channel();
     *TRAY_CHANNEL.lock().unwrap_or_else(|e| e.into_inner()) = Some(real_tx);
@@ -115,16 +138,30 @@ pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let status_bar: id = unsafe { NSStatusBar::systemStatusBar(nil) };
     let status_item: id =
         unsafe { msg_send![status_bar, statusItemWithLength: NSVariableStatusItemLength] };
+    let _: () = unsafe { msg_send![status_item, setLength: 24.0] };
+    let retained_status_item: id = unsafe { msg_send![status_item, retain] };
+    let retained_delegate: id = unsafe { msg_send![delegate, retain] };
 
     // ── Icon ───────────────────────────────────────────────────
-    let icon_bytes = trinity_util::icon::PNG_BYTES;
+    let icon_bytes = trinity_util::icon::TRAY_PNG_BYTES;
     let nsdata: id = unsafe { msg_send![class!(NSData), alloc] };
-    let nsdata: id = unsafe {
-        msg_send![nsdata, initWithBytes: icon_bytes.as_ptr() length: icon_bytes.len() as u64]
-    };
-    let icon: id = unsafe { msg_send![class!(NSImage), alloc] };
-    let icon: id = unsafe { msg_send![icon, initWithData: nsdata] };
-    let _: () = unsafe { msg_send![status_item, setImage: icon] };
+    let nsdata: id =
+        unsafe { msg_send![nsdata, initWithBytes: icon_bytes.as_ptr() length: icon_bytes.len()] };
+    if nsdata == nil {
+        warn!("failed to create NSData for macOS tray icon");
+        set_status_item_title(status_item, "T");
+    } else {
+        let icon: id = unsafe { msg_send![class!(NSImage), alloc] };
+        let icon: id = unsafe { msg_send![icon, initWithData: nsdata] };
+        if icon == nil {
+            warn!("failed to decode macOS tray icon PNG");
+            set_status_item_title(status_item, "T");
+        } else {
+            let _: () = unsafe { msg_send![icon, setTemplate: YES] };
+            let _: () = unsafe { msg_send![icon, setSize: NSSize::new(18.0, 18.0)] };
+            set_status_item_image(status_item, icon);
+        }
+    }
 
     // ── Menu ───────────────────────────────────────────────────
     let menu: id = unsafe { NSMenu::new(nil) };
@@ -156,6 +193,31 @@ pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
     let _: () = unsafe { msg_send![menu, addItem: exit_item] };
 
     let _: () = unsafe { msg_send![status_item, setMenu: menu] };
+    *TRAY_OBJECTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrayObjects {
+        _status_item: retained_status_item as usize,
+        _delegate: retained_delegate as usize,
+    });
 
     rx
+}
+
+fn set_status_item_image(status_item: id, icon: id) {
+    let button: id = unsafe { msg_send![status_item, button] };
+    if button == nil {
+        let _: () = unsafe { msg_send![status_item, setImage: icon] };
+        return;
+    }
+
+    let _: () = unsafe { msg_send![button, setImage: icon] };
+}
+
+fn set_status_item_title(status_item: id, title: &str) {
+    let title = ns_string(title);
+    let button: id = unsafe { msg_send![status_item, button] };
+    if button == nil {
+        let _: () = unsafe { msg_send![status_item, setTitle: title] };
+        return;
+    }
+
+    let _: () = unsafe { msg_send![button, setTitle: title] };
 }

@@ -19,4 +19,4 @@ pub use cfg::{
 };
 pub use font::install_fonts;
 pub use hotkey::{HotkeyAction, HotkeyConfig, HotkeyRegistrationError, HotkeyService};
-pub use icon::{PNG_BYTES, get_icon_data};
+pub use icon::{LOGO_PNG_BYTES, TRAY_PNG_BYTES, get_icon_data};

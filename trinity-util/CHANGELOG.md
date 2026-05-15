@@ -5,6 +5,11 @@
 ### Added
 - Shared `hotkey` module built on `global-hotkey` for application-wide system shortcut registration.
 - Hotkey config loading and targeted persistence helpers.
+- Dedicated `TRAY_PNG_BYTES` resource for native system tray/status icons.
+
+### Changed
+- Resource files moved from `res/` to `assets/`.
+- Window icons now use `LOGO_PNG_BYTES` while tray implementations use `TRAY_PNG_BYTES`.
 
 ## 2025-01-30
 

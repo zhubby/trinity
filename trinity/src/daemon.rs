@@ -2,7 +2,7 @@
 //!
 //! This app has a hidden main viewport and serves as the daemon backbone:
 //! - Creates and polls the system tray for menu events
-//! - Shows the Settings Panel viewport when requested
+//! - Shows the root Settings Panel viewport when requested
 //! - Closes the app when "Exit" is selected
 //! - Spawns background translator threads (mouse listener, translation engine)
 //! - Shows the Translator popup viewport when a word selection triggers translation
@@ -20,24 +20,20 @@ use trinity_util::{
     hotkey::{HotkeyAction, HotkeyService},
 };
 
-fn panel_viewport_id() -> ViewportId {
-    ViewportId::from_hash_of("panel")
-}
-
 fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
 }
 
-/// The background daemon application. Its main viewport is invisible;
-/// all user-facing windows are spawned as secondary viewports.
+/// The background daemon application. Its root viewport is the settings panel;
+/// it starts hidden and is shown by the tray menu.
 pub struct DaemonApp {
     /// Channel to receive tray events (ShowPanel / Exit)
     tray_rx: mpsc::Receiver<TrayEvent>,
     /// Whether the Settings Panel viewport is currently visible
     panel_visible: bool,
-    /// The PanelApp instance that draws the settings panel viewport
-    panel_app: Option<PanelApp>,
-    /// Whether the tray has been created (deferred to first ui() call on macOS)
+    /// The PanelApp instance drawn in the root viewport
+    panel_app: PanelApp,
+    /// Whether the tray has been created (deferred until eframe has initialized)
     tray_created: bool,
     /// Shared translation state for background translator threads
     translator_state: Arc<Mutex<TranslatorState>>,
@@ -49,8 +45,6 @@ pub struct DaemonApp {
     translator_popup_visible: bool,
     /// Application-wide system hotkey service
     hotkey_service: Option<HotkeyService>,
-    /// Channel for panel-triggered hotkey reload requests
-    hotkey_reload_tx: mpsc::Sender<HotkeyReloadRequest>,
     /// Channel for daemon-side hotkey reload handling
     hotkey_reload_rx: mpsc::Receiver<HotkeyReloadRequest>,
 }
@@ -69,8 +63,8 @@ struct TranslatorState {
 impl DaemonApp {
     /// Create a new DaemonApp.
     ///
-    /// The tray is created lazily on the first `ui()` call because macOS
-    /// requires NSApp to be initialized first (eframe sets this up).
+    /// The tray is created lazily from `logic()` because macOS requires
+    /// NSApp to be initialized first (eframe sets this up).
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         install_fonts(&cc.egui_ctx);
 
@@ -79,6 +73,7 @@ impl DaemonApp {
             "light" => cc.egui_ctx.set_visuals(egui::Visuals::light()),
             _ => cc.egui_ctx.set_visuals(egui::Visuals::dark()),
         }
+        cc.egui_ctx.request_repaint();
 
         // Channels for tray communication — dummy receiver until tray is created
         let (_, tray_rx) = mpsc::channel();
@@ -102,14 +97,13 @@ impl DaemonApp {
         Self {
             tray_rx,
             panel_visible: false,
-            panel_app: None,
+            panel_app: PanelApp::new_from_context(&cc.egui_ctx, hotkey_reload_tx.clone()),
             tray_created: false,
             translator_state,
             translator_popup_tx: popup_tx,
             translator_popup_rx: popup_rx,
             translator_popup_visible: false,
             hotkey_service,
-            hotkey_reload_tx,
             hotkey_reload_rx,
         }
     }
@@ -118,71 +112,64 @@ impl DaemonApp {
 impl App for DaemonApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
         self.process_hotkey_reload_requests();
         self.process_hotkey_actions(&ctx);
 
-        // ── Deferred tray creation (first frame) ───────────────────────
-        if !self.tray_created {
-            self.tray_created = true;
-            let (tray_tx, _tray_rx) = mpsc::channel();
-            self.tray_rx = crate::tray::create_tray(tray_tx);
+        self.ensure_tray_created(&ctx);
 
-            // ── Spawn background translator threads ────────────────────
-            spawn_translator_threads(
-                ctx.clone(),
-                self.translator_state.clone(),
-                self.translator_popup_tx.clone(),
-            );
+        if self.process_tray_events(&ctx) {
+            return;
         }
 
-        // ── Process tray events ─────────────────────────────────────────
+        self.process_translation_popup_events();
+        self.show_root_panel(ui);
+        self.show_translator_viewport(&ctx);
+
+        // ── Keep daemon alive by requesting repaint ─────────────────────
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
+impl DaemonApp {
+    fn ensure_tray_created(&mut self, ctx: &Context) {
+        if self.tray_created {
+            return;
+        }
+
+        self.tray_created = true;
+        let (tray_tx, _tray_rx) = mpsc::channel();
+        self.tray_rx = crate::tray::create_tray(tray_tx);
+
+        // ── Spawn background translator threads ────────────────────────
+        spawn_translator_threads(
+            ctx.clone(),
+            self.translator_state.clone(),
+            self.translator_popup_tx.clone(),
+        );
+    }
+
+    fn process_tray_events(&mut self, ctx: &Context) -> bool {
         while let Ok(event) = self.tray_rx.try_recv() {
             match event {
                 TrayEvent::ShowPanel => {
                     self.panel_visible = true;
-                    if self.panel_app.is_none() {
-                        // We create a PanelApp context lazily. Since PanelApp::new()
-                        // needs a CreationContext, we'll create a simple panel
-                        // that uses the daemon's context directly.
-                        self.panel_app = Some(PanelApp::new_from_context(
-                            &ctx,
-                            self.hotkey_reload_tx.clone(),
-                        ));
-                    }
+                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
                 }
                 TrayEvent::Exit => {
                     // Close all viewports and exit
+                    ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
                     ctx.send_viewport_cmd(ViewportCommand::Close);
-                    return;
+                    return true;
                 }
             }
         }
 
-        // ── Show Settings Panel viewport ────────────────────────────────
-        if self.panel_visible
-            && let Some(panel_app) = &mut self.panel_app
-        {
-            let (width, height) = get_window_size();
-            let close_requested = ctx.show_viewport_immediate(
-                panel_viewport_id(),
-                ViewportBuilder::default()
-                    .with_title("Trinity Settings")
-                    .with_inner_size([width, height])
-                    .with_resizable(true),
-                |ui, _class| {
-                    let close_requested = ui.input(|input| input.viewport().close_requested());
-                    // Draw the panel content using PanelApp's ui logic
-                    panel_app.show_inside(ui);
-                    close_requested
-                },
-            );
-            if close_requested {
-                self.panel_visible = false;
-                self.panel_app = None;
-            }
-        }
+        false
+    }
 
-        // ── Process translation popup events ────────────────────────────
+    fn process_translation_popup_events(&mut self) {
         while let Ok(popup) = self.translator_popup_rx.try_recv() {
             self.translator_popup_visible = true;
             {
@@ -193,58 +180,74 @@ impl App for DaemonApp {
                 state.text = popup.text;
             }
         }
+    }
 
-        if self.translator_popup_visible {
-            let (width, height) = get_window_size();
-            let text = self
-                .translator_state
-                .lock()
-                .unwrap_or_else(|err| err.into_inner())
-                .text
-                .clone();
-            let text = if text.trim().is_empty() {
-                "请选中需要翻译的文字触发划词翻译".to_string()
-            } else {
-                text
-            };
-            let close_requested = ctx.show_viewport_immediate(
-                translator_viewport_id(),
-                ViewportBuilder::default()
-                    .with_title("Translator")
-                    .with_always_on_top()
-                    .with_decorations(false)
-                    .with_inner_size([width, height]),
-                |ui, _class| {
-                    let mut close_requested = ui.input(|input| {
-                        input.viewport().close_requested() || input.key_pressed(egui::Key::Escape)
-                    });
-                    egui::CentralPanel::default().show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.button("x").clicked() {
-                                        close_requested = true;
-                                        ui.ctx().send_viewport_cmd_to(
-                                            translator_viewport_id(),
-                                            ViewportCommand::Close,
-                                        );
-                                    }
-                                },
-                            );
-                        });
-                        ui.label(&text);
-                    });
-                    close_requested
-                },
-            );
-            if close_requested {
-                self.translator_popup_visible = false;
-            }
+    fn show_root_panel(&mut self, ui: &mut egui::Ui) {
+        let close_requested = ui.input(|input| input.viewport().close_requested());
+        if close_requested {
+            self.panel_visible = false;
+            ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+            ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
+            return;
         }
 
-        // ── Keep daemon alive by requesting repaint ─────────────────────
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        if !self.panel_visible {
+            ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
+            return;
+        }
+
+        self.panel_app.show_inside(ui);
+    }
+
+    fn show_translator_viewport(&mut self, ctx: &Context) {
+        if !self.translator_popup_visible {
+            return;
+        }
+
+        let (width, height) = get_window_size();
+        let text = self
+            .translator_state
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .text
+            .clone();
+        let text = if text.trim().is_empty() {
+            "请选中需要翻译的文字触发划词翻译".to_string()
+        } else {
+            text
+        };
+        let close_requested = ctx.show_viewport_immediate(
+            translator_viewport_id(),
+            ViewportBuilder::default()
+                .with_title("Translator")
+                .with_always_on_top()
+                .with_decorations(false)
+                .with_inner_size([width, height]),
+            move |ui, _class| {
+                let mut close_requested = ui.input(|input| {
+                    input.viewport().close_requested() || input.key_pressed(egui::Key::Escape)
+                });
+
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("x").clicked() {
+                                close_requested = true;
+                                ui.ctx().send_viewport_cmd_to(
+                                    translator_viewport_id(),
+                                    ViewportCommand::Close,
+                                );
+                            }
+                        });
+                    });
+                    ui.label(&text);
+                });
+                close_requested
+            },
+        );
+        if close_requested {
+            self.translator_popup_visible = false;
+        }
     }
 }
 

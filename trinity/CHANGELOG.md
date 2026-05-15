@@ -5,6 +5,14 @@
 ### Changed
 - Package renamed from `trinity-gui` to `trinity` (directory `trinity/`).
 - Settings and translator viewports now track close requests independently so each window can be closed and reopened without affecting the other.
+- The settings panel is now the root viewport; the daemon hides it on startup and shows it from the tray.
+- Translator popup remains a secondary viewport triggered by hotkeys or selection translation.
+
+### Fixed
+- macOS tray icon now uses the dedicated `tray.png` template asset, validates native image creation, and falls back to a text status item when the PNG cannot be decoded.
+- macOS tray status item and menu delegate are retained for the lifetime of the app, preventing the menu bar icon from disappearing after startup.
+- Settings and translator viewports are opened from the root `ui()` path again, avoiding freezes from creating child viewports inside `App::logic()`.
+- Settings panel close requests now hide the root viewport instead of exiting the daemon.
 
 ### Added
 - CLI argument `--log-level` via `clap` (default: `debug`). Supported levels: off, error, warn, info, debug, trace.

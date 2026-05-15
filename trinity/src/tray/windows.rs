@@ -268,7 +268,7 @@ pub fn create_tray(_tx: mpsc::Sender<TrayEvent>) -> mpsc::Receiver<TrayEvent> {
 unsafe fn load_icon() -> winapi::shared::windef::HICON {
     use winapi::um::winuser::{CreateIconFromResourceEx, LR_DEFAULTCOLOR};
 
-    let png_bytes = trinity_util::icon::PNG_BYTES;
+    let png_bytes = trinity_util::icon::TRAY_PNG_BYTES;
     // CreateIconFromResourceEx can load PNG icons on Windows Vista+
     CreateIconFromResourceEx(
         png_bytes.as_ptr() as *mut u8,

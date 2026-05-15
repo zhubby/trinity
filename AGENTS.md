@@ -83,7 +83,7 @@ Rules for `trinity-util`:
 - Only extract code into `trinity-util` when it is genuinely shared (used by ≥2 crates) or is a foundational piece (config, fonts) that every module needs.
 - Do not move module-specific business logic (translation, clipboard operations, hotkey registration) into `trinity-util`.
 - `trinity-util` must remain platform-agnostic: no `cfg(target_os)` platform branching inside it (that belongs in the consuming crate).
-- Resource files (`res/` directory) live inside `trinity-util` so all crates can `include_bytes!` from a single location via path `../res/...`.
+- Resource files (`assets/` directory) live inside `trinity-util` so all crates can `include_bytes!` from a single location via path `../assets/...`.
 
 ## egui / eframe Conventions (0.34)
 
