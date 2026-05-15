@@ -1,0 +1,4 @@
+style_edition = "2024"
+
+indent_style = "Block"
+imports_granularity = "Crate"

@@ -1,0 +1,15 @@
+[package]
+name = "trinity-translator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trinity-util = { path = "../trinity-util" }
+eframe.workspace = true
+egui.workspace = true
+cfg-if.workspace = true
+deepl.workspace = true
+log.workspace = true
+rdev.workspace = true
+cli-clipboard.workspace = true
+tauri-hotkey = { git = "https://github.com/zu1k/tauri-hotkey-rs", branch = "master" }

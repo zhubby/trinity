@@ -1,0 +1,9 @@
+[package]
+name = "trinity-panel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trinity-util = { path = "../trinity-util" }
+eframe.workspace = true
+egui.workspace = true

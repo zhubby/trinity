@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = [
+    "trinity-gui",
+    "trinity-panel",
+    "trinity-util",
+    "trinity-translator",
+    "trinity-clipboard",
+    "trinity-dictation",
+]
+
+[workspace.package]
+version = "0.5.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+eframe = "0.34"
+egui = "0.34"
+cfg-if = "1"
+config = "0.15"
+deepl = { package = "deepl-api-client", version = "0.2" }
+log = "0.4"
+rdev = "0.5"
+cli-clipboard = "0.4"
+image = "0.25"
+trinity-util = { path = "trinity-util" }
+trinity-panel = { path = "trinity-panel" }
+trinity-gui = { path = "trinity-gui" }
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
+codegen-units = 1

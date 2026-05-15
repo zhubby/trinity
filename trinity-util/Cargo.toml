@@ -1,0 +1,11 @@
+[package]
+name = "trinity-util"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+config.workspace = true
+log.workspace = true
+image.workspace = true
