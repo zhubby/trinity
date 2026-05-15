@@ -6,7 +6,7 @@ A lightweight desktop AI trifecta assistant built with Rust and egui, integratin
 
 - **Word-Selection Translation** — select any text and get instant DeepL translation
 - **Voice Dictation** — speech-to-text input method *(coming soon)*
-- **Clipboard Management** — history, smart categorization *(coming soon)*
+- **Clipboard Management** — persisted text history with a keyboard-driven picker
 - **Control Panel** — configure API, hotkeys, theme, and service preferences
 - Lightweight, minimal footprint, optimized binary size
 - Automatic line-break cleanup for better PDF translation
@@ -19,7 +19,7 @@ A lightweight desktop AI trifecta assistant built with Rust and egui, integratin
 trinity/
 ├── trinity/                # Binary entry point (main)
 ├── trinity-translator/     # Word-selection translation (lib)
-├── trinity-clipboard/      # Clipboard management (lib, WIP)
+├── trinity-clipboard/      # Clipboard history and picker (lib)
 ├── trinity-dictation/      # Voice dictation input (lib, WIP)
 ├── trinity-panel/          # Control panel (lib)
 ├── trinity-util/           # Shared utilities: config, fonts, icons
@@ -31,7 +31,7 @@ trinity/
 |---|---|---|
 | `trinity` | Binary entry, orchestrates all modules | Active |
 | `trinity-translator` | DeepL translation, mouse/keyboard hooks, egui UI | Active |
-| `trinity-clipboard` | Clipboard history & smart paste | Stub |
+| `trinity-clipboard` | Clipboard history & smart paste | Active |
 | `trinity-dictation` | Voice recognition dictation | Stub |
 | `trinity-panel` | Control panel GUI | Active |
 | `trinity-util` | Config, fonts, icons, theme helpers | Active |
@@ -40,7 +40,7 @@ trinity/
 
 ### Windows
 
-Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `CmdOrCtrl+Shift+T` to translate the current selection. `Esc` closes translator windows. `CmdOrCtrl+Shift+D` exits completely.
+Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `CmdOrCtrl+Shift+T` to translate the current selection. Press `CmdOrCtrl+Shift+V` to open clipboard history. `Esc` closes floating windows. `CmdOrCtrl+Shift+D` exits completely.
 
 ### macOS / Linux
 
@@ -94,7 +94,12 @@ Example:
   "hotkey": {
     "open_translator": "Alt+Q",
     "translate_selection": "CmdOrCtrl+Shift+T",
+    "open_clipboard": "CmdOrCtrl+Shift+V",
     "quit_app": "CmdOrCtrl+Shift+D"
+  },
+  "clipboard": {
+    "capacity": 100,
+    "panel_page_size": 10
   }
 }
 ```

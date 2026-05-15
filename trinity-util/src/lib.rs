@@ -15,9 +15,11 @@ pub mod persistence;
 
 // Re-export commonly used items for convenience
 pub use cfg::{
-    SETTINGS, get_api, get_font_size_plus, get_hotkey_config, get_theme, get_window_size,
-    init_config, save_basic_config, save_hotkey_config, settings_path,
+    SETTINGS, clipboard_history_path, get_api, get_clipboard_config, get_font_size_plus,
+    get_hotkey_config, get_theme, get_window_size, init_config, save_basic_config,
+    save_clipboard_config, save_hotkey_config, settings_path,
 };
 pub use font::install_fonts;
 pub use hotkey::{HotkeyAction, HotkeyConfig, HotkeyRegistrationError, HotkeyService};
 pub use icon::{LOGO_PNG_BYTES, TRAY_PNG_BYTES, get_icon_data};
+pub use persistence::ClipboardConfig;

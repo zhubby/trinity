@@ -6,6 +6,7 @@
 - Dock-based Control Panel with fixed tabs for 通用, 快捷键, 剪切板, 翻译服务, and 语音服务.
 - Basic settings persistence for API URL and theme.
 - Editable hotkey settings for opening the translator, translating the selection, and quitting Trinity.
+- Editable clipboard settings for history capacity, picker page size, and picker shortcut.
 - Save flow that validates shortcuts, persists settings, and asks the daemon to reload hotkeys immediately.
 - 通用 tab now uses `egui-theme-switch` for system/dark/light theme switching.
 

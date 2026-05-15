@@ -28,6 +28,8 @@
 ### Added
 - CLI argument `--log-level` via `clap` (default: `debug`). Supported levels: off, error, warn, info, debug, trace.
 - `env_logger` integration for runtime log-level filtering.
+- Clipboard history daemon integration with background polling and an always-on-top picker viewport.
+- `CmdOrCtrl+Shift+V` global shortcut handling for opening clipboard history.
 
 ## 2026-05-15
 

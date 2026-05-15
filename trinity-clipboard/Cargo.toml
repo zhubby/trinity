@@ -5,3 +5,12 @@ edition.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+trinity-util = { workspace = true }
+egui = { workspace = true }
+cli-clipboard = { workspace = true }
+rdev = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }

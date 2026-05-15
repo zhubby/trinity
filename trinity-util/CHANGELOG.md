@@ -7,6 +7,8 @@
 - Basic config persistence helper for API URL and theme updates.
 - Shared `hotkey` module built on `global-hotkey` for application-wide system shortcut registration.
 - Hotkey config loading and targeted persistence helpers.
+- Clipboard config defaults and persistence helpers for history capacity and picker page size.
+- Clipboard history path helper for `~/.trinity/clipboard_history.json`.
 - Dedicated `TRAY_PNG_BYTES` resource for native system tray/status icons.
 
 ### Changed

@@ -13,7 +13,11 @@ use egui::{Context, RichText};
 use egui_dock::{DockArea, DockState, TabViewer};
 use egui_theme_switch::ThemeSwitch;
 use trinity_util::{
-    cfg::{get_api, get_theme, save_basic_config, save_hotkey_config, settings_path},
+    ClipboardConfig,
+    cfg::{
+        get_api, get_clipboard_config, get_theme, save_basic_config, save_clipboard_config,
+        save_hotkey_config, settings_path,
+    },
     font::install_fonts,
     hotkey::HotkeyConfig,
 };
@@ -75,6 +79,8 @@ pub struct PanelApp {
     hotkey_reload_tx: Option<HotkeyReloadTx>,
     hotkey_result_rx: Option<mpsc::Receiver<Result<(), String>>>,
     pending_hotkey_config: Option<HotkeyConfig>,
+    clipboard_config: ClipboardConfig,
+    clipboard_status: Option<Result<String, String>>,
 }
 
 impl PanelApp {
@@ -139,6 +145,8 @@ impl PanelApp {
             hotkey_reload_tx,
             hotkey_result_rx: None,
             pending_hotkey_config: None,
+            clipboard_config: get_clipboard_config(),
+            clipboard_status: None,
         }
     }
 
@@ -188,6 +196,7 @@ impl PanelApp {
             "翻译当前选区",
             &mut self.hotkey_config.translate_selection,
         );
+        hotkey_row(ui, "打开剪切板", &mut self.hotkey_config.open_clipboard);
         hotkey_row(ui, "退出 Trinity", &mut self.hotkey_config.quit_app);
 
         ui.add_space(8.0);
@@ -204,10 +213,42 @@ impl PanelApp {
         show_status(ui, &self.hotkey_status);
     }
 
-    fn show_clipboard_tab(ui: &mut egui::Ui) {
+    fn show_clipboard_tab(&mut self, ui: &mut egui::Ui) {
         section_title(ui, "剪切板");
-        readonly_row(ui, "模块状态", "待实现");
-        readonly_row(ui, "配置写入", "暂未开放");
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 20.0], egui::Label::new("存储数量"));
+            ui.add(
+                egui::DragValue::new(&mut self.clipboard_config.capacity)
+                    .range(ClipboardConfig::MIN_CAPACITY..=ClipboardConfig::MAX_CAPACITY)
+                    .speed(1),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 20.0], egui::Label::new("面板显示条数"));
+            ui.add(
+                egui::DragValue::new(&mut self.clipboard_config.panel_page_size)
+                    .range(
+                        ClipboardConfig::MIN_PANEL_PAGE_SIZE..=ClipboardConfig::MAX_PANEL_PAGE_SIZE,
+                    )
+                    .speed(1),
+            );
+        });
+        hotkey_row(ui, "唤起快捷键", &mut self.hotkey_config.open_clipboard);
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button("保存剪切板设置").clicked() {
+                self.save_clipboard_settings();
+            }
+            if ui.button("恢复默认").clicked() {
+                self.clipboard_config = ClipboardConfig::default();
+                self.hotkey_config.open_clipboard =
+                    HotkeyConfig::DEFAULT_OPEN_CLIPBOARD.to_string();
+                self.clipboard_status = None;
+            }
+        });
+
+        show_status(ui, &self.clipboard_status);
     }
 
     fn show_translation_tab(&mut self, ui: &mut egui::Ui) {
@@ -297,6 +338,24 @@ impl PanelApp {
         self.hotkey_status = Some(Ok("Reloading hotkeys...".to_string()));
     }
 
+    fn save_clipboard_settings(&mut self) {
+        self.clipboard_config = self.clipboard_config.normalized();
+        if let Err(err) = self.hotkey_config.validate() {
+            self.clipboard_status = Some(Err(err.to_string()));
+            return;
+        }
+
+        match save_clipboard_config(self.clipboard_config) {
+            Ok(()) => {
+                self.clipboard_status = Some(Ok("剪切板设置已保存。".to_string()));
+                self.save_hotkeys();
+            }
+            Err(err) => {
+                self.clipboard_status = Some(Err(format!("保存剪切板设置失败: {err}")));
+            }
+        }
+    }
+
     fn poll_hotkey_reload_result(&mut self) {
         let Some(result_rx) = &self.hotkey_result_rx else {
             return;
@@ -345,7 +404,7 @@ impl TabViewer for PanelTabViewer<'_> {
                 match tab {
                     ControlPanelTab::General => self.app.show_general_tab(ui),
                     ControlPanelTab::Hotkeys => self.app.show_hotkeys_tab(ui),
-                    ControlPanelTab::Clipboard => PanelApp::show_clipboard_tab(ui),
+                    ControlPanelTab::Clipboard => self.app.show_clipboard_tab(ui),
                     ControlPanelTab::TranslationService => self.app.show_translation_tab(ui),
                     ControlPanelTab::VoiceService => PanelApp::show_voice_tab(ui),
                 }

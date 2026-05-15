@@ -7,7 +7,7 @@ use log::warn;
 
 use crate::{
     hotkey::HotkeyConfig,
-    persistence::{self, AppConfig},
+    persistence::{self, AppConfig, ClipboardConfig},
 };
 
 /// Global settings, lazily initialized from `~/.trinity/config.json`.
@@ -17,6 +17,11 @@ pub static SETTINGS: LazyLock<Mutex<AppConfig>> =
 #[must_use]
 pub fn settings_path() -> PathBuf {
     persistence::config_path()
+}
+
+#[must_use]
+pub fn clipboard_history_path() -> PathBuf {
+    persistence::clipboard_history_path()
 }
 
 pub fn init_config() {
@@ -57,6 +62,15 @@ pub fn get_theme() -> String {
 }
 
 #[must_use]
+pub fn get_clipboard_config() -> ClipboardConfig {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clipboard
+        .normalized()
+}
+
+#[must_use]
 pub fn get_hotkey_config() -> HotkeyConfig {
     SETTINGS
         .lock()
@@ -73,6 +87,12 @@ pub fn save_hotkey_config(config: &HotkeyConfig) -> std::io::Result<()> {
 
 pub fn save_basic_config(api_url: &str, theme: &str) -> std::io::Result<()> {
     save_basic_config_to_path(&settings_path(), api_url, theme)?;
+    init_config();
+    Ok(())
+}
+
+pub fn save_clipboard_config(config: ClipboardConfig) -> std::io::Result<()> {
+    save_clipboard_config_to_path(&settings_path(), config.normalized())?;
     init_config();
     Ok(())
 }
@@ -96,14 +116,23 @@ fn save_hotkey_config_to_path(path: &Path, hotkey: &HotkeyConfig) -> std::io::Re
     persistence::save_config_to_path(path, &config)
 }
 
+fn save_clipboard_config_to_path(path: &Path, clipboard: ClipboardConfig) -> std::io::Result<()> {
+    let mut config = persistence::load_config_from_path(path)?;
+    config.clipboard = clipboard.normalized();
+    persistence::save_config_to_path(path, &config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::{WindowConfig, WindowSize};
+    use crate::persistence::{ClipboardConfig, WindowConfig, WindowSize};
     use std::{
         fs,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn init_config_reads_json_values() {
@@ -121,7 +150,12 @@ mod tests {
             hotkey: HotkeyConfig {
                 open_translator: "Alt+W".to_string(),
                 translate_selection: "CmdOrCtrl+Shift+Y".to_string(),
+                open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
                 quit_app: "CmdOrCtrl+Shift+U".to_string(),
+            },
+            clipboard: ClipboardConfig {
+                capacity: 42,
+                panel_page_size: 7,
             },
         };
         persistence::save_config_to_path(&path, &config)
@@ -134,6 +168,7 @@ mod tests {
         assert_eq!(get_window_size(), (640.0, 360.0));
         assert_eq!(get_font_size_plus(), 2.0);
         assert_eq!(get_hotkey_config(), config.hotkey);
+        assert_eq!(get_clipboard_config(), config.clipboard);
 
         let _ = fs::remove_file(path);
     }
@@ -151,6 +186,10 @@ mod tests {
                 open_translator: "Alt+Q".to_string(),
                 ..Default::default()
             },
+            clipboard: ClipboardConfig {
+                capacity: 25,
+                panel_page_size: 4,
+            },
         };
         persistence::save_config_to_path(&path, &original)
             .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
@@ -158,6 +197,7 @@ mod tests {
         let hotkey = HotkeyConfig {
             open_translator: "Alt+W".to_string(),
             translate_selection: "CmdOrCtrl+Shift+T".to_string(),
+            open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
             quit_app: "CmdOrCtrl+Shift+D".to_string(),
         };
         save_hotkey_config_to_path(&path, &hotkey)
@@ -168,6 +208,7 @@ mod tests {
         assert_eq!(saved.api, original.api);
         assert_eq!(saved.window, original.window);
         assert_eq!(saved.hotkey, hotkey);
+        assert_eq!(saved.clipboard, original.clipboard);
 
         let _ = fs::remove_file(path);
     }
@@ -188,7 +229,12 @@ mod tests {
             hotkey: HotkeyConfig {
                 open_translator: "Alt+Q".to_string(),
                 translate_selection: "CmdOrCtrl+Shift+T".to_string(),
+                open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
                 quit_app: "CmdOrCtrl+Shift+D".to_string(),
+            },
+            clipboard: ClipboardConfig {
+                capacity: 50,
+                panel_page_size: 5,
             },
         };
         persistence::save_config_to_path(&path, &original)
@@ -204,6 +250,51 @@ mod tests {
         assert_eq!(saved.window.size, original.window.size);
         assert_eq!(saved.window.font_size_plus, original.window.font_size_plus);
         assert_eq!(saved.hotkey, original.hotkey);
+        assert_eq!(saved.clipboard, original.clipboard);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_clipboard_config_updates_only_clipboard_fields() {
+        let path = temp_config_path();
+        let original = AppConfig {
+            api: "https://example.test".to_string(),
+            window: WindowConfig {
+                theme: "light".to_string(),
+                ..Default::default()
+            },
+            hotkey: HotkeyConfig {
+                open_translator: "Alt+Q".to_string(),
+                ..Default::default()
+            },
+            clipboard: ClipboardConfig {
+                capacity: 10,
+                panel_page_size: 3,
+            },
+        };
+        persistence::save_config_to_path(&path, &original)
+            .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
+
+        let clipboard = ClipboardConfig {
+            capacity: 0,
+            panel_page_size: 1_000,
+        };
+        save_clipboard_config_to_path(&path, clipboard)
+            .unwrap_or_else(|err| panic!("failed to save clipboard config: {err}"));
+
+        let saved = persistence::load_config_from_path(&path)
+            .unwrap_or_else(|err| panic!("failed to read saved config: {err}"));
+        assert_eq!(saved.api, original.api);
+        assert_eq!(saved.window, original.window);
+        assert_eq!(saved.hotkey, original.hotkey);
+        assert_eq!(
+            saved.clipboard,
+            ClipboardConfig {
+                capacity: ClipboardConfig::MIN_CAPACITY,
+                panel_page_size: ClipboardConfig::MAX_PANEL_PAGE_SIZE,
+            }
+        );
 
         let _ = fs::remove_file(path);
     }
@@ -213,8 +304,12 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or_default();
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir()
-            .join(format!("trinity-cfg-{nanos}"))
+            .join(format!(
+                "trinity-cfg-{}-{nanos}-{counter}",
+                std::process::id()
+            ))
             .join("config.json")
     }
 }

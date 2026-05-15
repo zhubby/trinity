@@ -17,6 +17,8 @@ pub struct AppConfig {
     pub window: WindowConfig,
     #[serde(default)]
     pub hotkey: HotkeyConfig,
+    #[serde(default)]
+    pub clipboard: ClipboardConfig,
 }
 
 impl Default for AppConfig {
@@ -25,6 +27,43 @@ impl Default for AppConfig {
             api: default_api(),
             window: WindowConfig::default(),
             hotkey: HotkeyConfig::default(),
+            clipboard: ClipboardConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardConfig {
+    #[serde(default = "default_clipboard_capacity")]
+    pub capacity: usize,
+    #[serde(default = "default_clipboard_panel_page_size")]
+    pub panel_page_size: usize,
+}
+
+impl ClipboardConfig {
+    pub const DEFAULT_CAPACITY: usize = 100;
+    pub const DEFAULT_PANEL_PAGE_SIZE: usize = 10;
+    pub const MIN_CAPACITY: usize = 1;
+    pub const MAX_CAPACITY: usize = 10_000;
+    pub const MIN_PANEL_PAGE_SIZE: usize = 1;
+    pub const MAX_PANEL_PAGE_SIZE: usize = 100;
+
+    #[must_use]
+    pub fn normalized(self) -> Self {
+        Self {
+            capacity: self.capacity.clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY),
+            panel_page_size: self
+                .panel_page_size
+                .clamp(Self::MIN_PANEL_PAGE_SIZE, Self::MAX_PANEL_PAGE_SIZE),
+        }
+    }
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        Self {
+            capacity: default_clipboard_capacity(),
+            panel_page_size: default_clipboard_panel_page_size(),
         }
     }
 }
@@ -68,10 +107,12 @@ impl Default for WindowSize {
 
 #[must_use]
 pub fn config_path() -> PathBuf {
-    home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".trinity")
-        .join("config.json")
+    trinity_dir().join("config.json")
+}
+
+#[must_use]
+pub fn clipboard_history_path() -> PathBuf {
+    trinity_dir().join("clipboard_history.json")
 }
 
 pub fn load_config() -> io::Result<AppConfig> {
@@ -115,6 +156,12 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn trinity_dir() -> PathBuf {
+    home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".trinity")
+}
+
 fn default_api() -> String {
     DEFAULT_API_URL.to_string()
 }
@@ -135,10 +182,23 @@ fn default_window_height() -> f32 {
     200.0
 }
 
+fn default_clipboard_capacity() -> usize {
+    ClipboardConfig::DEFAULT_CAPACITY
+}
+
+fn default_clipboard_panel_page_size() -> usize {
+    ClipboardConfig::DEFAULT_PANEL_PAGE_SIZE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn load_config_creates_default_file_when_missing() {
@@ -171,10 +231,13 @@ mod tests {
         assert_eq!(config.window.theme, "light");
         assert_eq!(config.window.size, WindowSize::default());
         assert_eq!(config.hotkey, HotkeyConfig::default());
+        assert_eq!(config.clipboard, ClipboardConfig::default());
 
         let saved = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("failed to read rewritten config: {err}"));
         assert!(saved.contains("open_translator"));
+        assert!(saved.contains("open_clipboard"));
+        assert!(saved.contains("clipboard"));
         assert!(saved.contains("font_size_plus"));
 
         let _ = fs::remove_file(path);
@@ -198,8 +261,12 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or_default();
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir()
-            .join(format!("trinity-config-{nanos}"))
+            .join(format!(
+                "trinity-config-{}-{nanos}-{counter}",
+                std::process::id()
+            ))
             .join("config.json")
     }
 }

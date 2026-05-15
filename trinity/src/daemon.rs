@@ -13,9 +13,10 @@ use log::{info, warn};
 use std::sync::{Arc, Mutex, mpsc};
 
 use crate::tray::TrayEvent;
+use trinity_clipboard::{ClipboardManager, ClipboardUiAction};
 use trinity_panel::{HotkeyReloadRequest, PanelApp};
 use trinity_util::{
-    cfg::{get_theme, get_window_size},
+    cfg::{get_clipboard_config, get_theme, get_window_size},
     font::install_fonts,
     hotkey::{HotkeyAction, HotkeyService},
 };
@@ -24,6 +25,10 @@ const WINDOW_RESIZE_HIT_ZONE: f32 = 8.0;
 
 fn translator_viewport_id() -> ViewportId {
     ViewportId::from_hash_of("translator_popup")
+}
+
+fn clipboard_viewport_id() -> ViewportId {
+    ViewportId::from_hash_of("clipboard_history")
 }
 
 /// The background daemon application. Its root viewport is the control panel;
@@ -57,6 +62,10 @@ pub struct DaemonApp {
     hotkey_service: Option<HotkeyService>,
     /// Channel for daemon-side hotkey reload handling
     hotkey_reload_rx: mpsc::Receiver<HotkeyReloadRequest>,
+    /// Text clipboard history manager.
+    clipboard_manager: ClipboardManager,
+    /// Whether the clipboard picker viewport is currently visible
+    clipboard_visible: bool,
 }
 
 /// Translation popup event carrying the text to display
@@ -93,6 +102,7 @@ impl DaemonApp {
         }));
 
         let panel_app = PanelApp::new_from_context(&cc.egui_ctx, hotkey_reload_tx.clone());
+        let clipboard_manager = ClipboardManager::new(get_clipboard_config());
 
         Self {
             tray_rx,
@@ -109,6 +119,8 @@ impl DaemonApp {
             translator_popup_visible: false,
             hotkey_service: None,
             hotkey_reload_rx,
+            clipboard_manager,
+            clipboard_visible: false,
         }
     }
 }
@@ -161,6 +173,7 @@ impl App for DaemonApp {
 
         self.process_translation_popup_events();
         self.show_translator_viewport(&ctx);
+        self.show_clipboard_viewport(&ctx);
 
         // ── Keep daemon alive by requesting repaint ─────────────────────
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -187,6 +200,7 @@ impl DaemonApp {
 
         self.background_services_started = true;
         self.ensure_hotkeys_started();
+        self.clipboard_manager.start_monitoring();
         spawn_translator_threads(
             ctx.clone(),
             self.translator_state.clone(),
@@ -218,6 +232,7 @@ impl DaemonApp {
                     // Close all viewports and exit
                     self.exit_requested = true;
                     ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
+                    ctx.send_viewport_cmd_to(clipboard_viewport_id(), ViewportCommand::Close);
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                     return true;
                 }
@@ -279,6 +294,7 @@ impl DaemonApp {
     fn exit_app(&mut self, ctx: &Context) {
         self.exit_requested = true;
         ctx.send_viewport_cmd_to(translator_viewport_id(), ViewportCommand::Close);
+        ctx.send_viewport_cmd_to(clipboard_viewport_id(), ViewportCommand::Close);
         ctx.send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -455,6 +471,63 @@ impl DaemonApp {
             self.translator_popup_visible = false;
         }
     }
+
+    fn show_clipboard_viewport(&mut self, ctx: &Context) {
+        if !self.clipboard_visible {
+            return;
+        }
+
+        self.clipboard_manager.reload_config(get_clipboard_config());
+        let manager = self.clipboard_manager.clone();
+        let close_requested = ctx.show_viewport_immediate(
+            clipboard_viewport_id(),
+            ViewportBuilder::default()
+                .with_title("Clipboard History")
+                .with_always_on_top()
+                .with_decorations(false)
+                .with_inner_size([520.0, 420.0]),
+            move |ui, _class| {
+                let mut close_requested = ui.input(|input| input.viewport().close_requested());
+
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("x").clicked() {
+                                close_requested = true;
+                                ui.ctx().send_viewport_cmd_to(
+                                    clipboard_viewport_id(),
+                                    ViewportCommand::Close,
+                                );
+                            }
+                        });
+                    });
+
+                    match manager.show_inside(ui) {
+                        ClipboardUiAction::None => {}
+                        ClipboardUiAction::Close => {
+                            close_requested = true;
+                            ui.ctx().send_viewport_cmd_to(
+                                clipboard_viewport_id(),
+                                ViewportCommand::Close,
+                            );
+                        }
+                        ClipboardUiAction::Paste(text) => {
+                            close_requested = true;
+                            ui.ctx().send_viewport_cmd_to(
+                                clipboard_viewport_id(),
+                                ViewportCommand::Close,
+                            );
+                            std::thread::spawn(move || trinity_clipboard::paste_text(text));
+                        }
+                    }
+                });
+                close_requested
+            },
+        );
+        if close_requested {
+            self.clipboard_visible = false;
+        }
+    }
 }
 
 impl DaemonApp {
@@ -497,6 +570,11 @@ impl DaemonApp {
                     self.translator_state.clone(),
                     self.translator_popup_tx.clone(),
                 ),
+                HotkeyAction::OpenClipboard => {
+                    self.clipboard_manager.start_monitoring();
+                    self.clipboard_visible = true;
+                    ctx.request_repaint();
+                }
                 HotkeyAction::QuitApp => {
                     self.exit_app(ctx);
                 }

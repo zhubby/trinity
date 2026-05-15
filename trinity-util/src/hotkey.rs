@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub enum HotkeyAction {
     OpenTranslator,
     TranslateSelection,
+    OpenClipboard,
     QuitApp,
 }
 
@@ -19,6 +20,8 @@ pub struct HotkeyConfig {
     pub open_translator: String,
     #[serde(default = "default_translate_selection")]
     pub translate_selection: String,
+    #[serde(default = "default_open_clipboard")]
+    pub open_clipboard: String,
     #[serde(default = "default_quit_app")]
     pub quit_app: String,
 }
@@ -26,16 +29,18 @@ pub struct HotkeyConfig {
 impl HotkeyConfig {
     pub const DEFAULT_OPEN_TRANSLATOR: &'static str = "Alt+Q";
     pub const DEFAULT_TRANSLATE_SELECTION: &'static str = "CmdOrCtrl+Shift+T";
+    pub const DEFAULT_OPEN_CLIPBOARD: &'static str = "CmdOrCtrl+Shift+V";
     pub const DEFAULT_QUIT_APP: &'static str = "CmdOrCtrl+Shift+D";
 
     #[must_use]
-    pub fn entries(&self) -> [(HotkeyAction, &str); 3] {
+    pub fn entries(&self) -> [(HotkeyAction, &str); 4] {
         [
             (HotkeyAction::OpenTranslator, self.open_translator.as_str()),
             (
                 HotkeyAction::TranslateSelection,
                 self.translate_selection.as_str(),
             ),
+            (HotkeyAction::OpenClipboard, self.open_clipboard.as_str()),
             (HotkeyAction::QuitApp, self.quit_app.as_str()),
         ]
     }
@@ -63,6 +68,10 @@ fn default_translate_selection() -> String {
     HotkeyConfig::DEFAULT_TRANSLATE_SELECTION.to_string()
 }
 
+fn default_open_clipboard() -> String {
+    HotkeyConfig::DEFAULT_OPEN_CLIPBOARD.to_string()
+}
+
 fn default_quit_app() -> String {
     HotkeyConfig::DEFAULT_QUIT_APP.to_string()
 }
@@ -72,6 +81,7 @@ impl Default for HotkeyConfig {
         Self {
             open_translator: Self::DEFAULT_OPEN_TRANSLATOR.to_string(),
             translate_selection: Self::DEFAULT_TRANSLATE_SELECTION.to_string(),
+            open_clipboard: Self::DEFAULT_OPEN_CLIPBOARD.to_string(),
             quit_app: Self::DEFAULT_QUIT_APP.to_string(),
         }
     }
@@ -285,6 +295,7 @@ mod tests {
         let config = HotkeyConfig {
             open_translator: "Alt+Q".to_string(),
             translate_selection: "Alt+Q".to_string(),
+            open_clipboard: "CmdOrCtrl+Shift+V".to_string(),
             quit_app: "CmdOrCtrl+Shift+D".to_string(),
         };
 

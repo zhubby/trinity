@@ -4452,6 +4452,15 @@ dependencies = [
 [[package]]
 name = "trinity-clipboard"
 version = "0.5.0"
+dependencies = [
+ "cli-clipboard",
+ "egui",
+ "log",
+ "rdev",
+ "serde",
+ "serde_json",
+ "trinity-util",
+]
 
 [[package]]
 name = "trinity-dictation"
