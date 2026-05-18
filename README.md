@@ -5,7 +5,7 @@ A lightweight desktop AI trifecta assistant built with Rust and egui, integratin
 ## Features
 
 - **Word-Selection Translation** — select any text and get instant DeepL translation
-- **Voice Dictation** — speech-to-text input method *(coming soon)*
+- **Voice Dictation** — hold a global hotkey to record, transcribe with ElevenLabs, and type the result into the focused input
 - **Clipboard Management** — persisted text history with a keyboard-driven picker
 - **Control Panel** — configure API, hotkeys, theme, and service preferences
 - Lightweight, minimal footprint, optimized binary size
@@ -20,7 +20,7 @@ trinity/
 ├── trinity/                # Binary entry point (main)
 ├── trinity-translator/     # Word-selection translation (lib)
 ├── trinity-clipboard/      # Clipboard history and picker (lib)
-├── trinity-dictation/      # Voice dictation input (lib, WIP)
+├── trinity-dictation/      # Voice dictation input (lib)
 ├── trinity-panel/          # Control panel (lib)
 ├── trinity-util/           # Shared utilities: config, fonts, icons
 ├── Cargo.toml              # Workspace configuration
@@ -32,7 +32,7 @@ trinity/
 | `trinity` | Binary entry, orchestrates all modules | Active |
 | `trinity-translator` | DeepL translation, mouse/keyboard hooks, egui UI | Active |
 | `trinity-clipboard` | Clipboard history & smart paste | Active |
-| `trinity-dictation` | Voice recognition dictation | Stub |
+| `trinity-dictation` | Voice recognition dictation | Active |
 | `trinity-panel` | Control panel GUI | Active |
 | `trinity-util` | Config, fonts, icons, theme helpers | Active |
 
@@ -40,15 +40,15 @@ trinity/
 
 ### Windows
 
-Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. `Esc` closes floating windows. `Control+Shift+D` exits completely.
+Launch the binary — it stays in the background. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. Hold `Control+Shift+Space` to dictate into the focused input. `Esc` closes floating windows. `Control+Shift+D` exits completely.
 
 ### macOS
 
-Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Command+Shift+T` to translate the current selection. Press `Command+Shift+V` to open clipboard history. `Esc` closes floating windows. `Command+Shift+D` exits completely.
+Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Command+Shift+T` to translate the current selection. Press `Command+Shift+V` to open clipboard history. Hold `Command+Shift+Space` to dictate into the focused input. `Esc` closes floating windows. `Command+Shift+D` exits completely.
 
 ### Linux
 
-Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. `Esc` closes floating windows. `Control+Shift+D` exits completely.
+Launch the binary. Press `Alt+Q` to pop up the translator window. Press `Control+Shift+T` to translate the current selection. Press `Control+Shift+V` to open clipboard history. Hold `Control+Shift+Space` to dictate into the focused input. `Esc` closes floating windows. `Control+Shift+D` exits completely.
 
 ### General
 
@@ -99,11 +99,18 @@ macOS example:
     "open_translator": "Alt+Q",
     "translate_selection": "Command+Shift+T",
     "open_clipboard": "Command+Shift+V",
+    "record_dictation": "Command+Shift+Space",
     "quit_app": "Command+Shift+D"
   },
   "clipboard": {
     "capacity": 100,
     "panel_page_size": 10
+  },
+  "dictation": {
+    "provider": "elevenlabs",
+    "api_key": "YOUR_ELEVENLABS_API_KEY",
+    "model_id": "scribe_v2",
+    "language_code": null
   }
 }
 ```

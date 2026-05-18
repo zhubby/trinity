@@ -7,7 +7,7 @@ use log::warn;
 
 use crate::{
     hotkey::HotkeyConfig,
-    persistence::{self, AppConfig, ClipboardConfig},
+    persistence::{self, AppConfig, ClipboardConfig, DictationConfig},
 };
 
 /// Global settings, lazily initialized from `~/.trinity/config.json`.
@@ -71,6 +71,16 @@ pub fn get_clipboard_config() -> ClipboardConfig {
 }
 
 #[must_use]
+pub fn get_dictation_config() -> DictationConfig {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .dictation
+        .clone()
+        .normalized()
+}
+
+#[must_use]
 pub fn get_hotkey_config() -> HotkeyConfig {
     SETTINGS
         .lock()
@@ -93,6 +103,12 @@ pub fn save_basic_config(api_url: &str, theme: &str) -> std::io::Result<()> {
 
 pub fn save_clipboard_config(config: ClipboardConfig) -> std::io::Result<()> {
     save_clipboard_config_to_path(&settings_path(), config.normalized())?;
+    init_config();
+    Ok(())
+}
+
+pub fn save_dictation_config(config: DictationConfig) -> std::io::Result<()> {
+    save_dictation_config_to_path(&settings_path(), config.normalized())?;
     init_config();
     Ok(())
 }
@@ -122,10 +138,16 @@ fn save_clipboard_config_to_path(path: &Path, clipboard: ClipboardConfig) -> std
     persistence::save_config_to_path(path, &config)
 }
 
+fn save_dictation_config_to_path(path: &Path, dictation: DictationConfig) -> std::io::Result<()> {
+    let mut config = persistence::load_config_from_path(path)?;
+    config.dictation = dictation.normalized();
+    persistence::save_config_to_path(path, &config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::{ClipboardConfig, WindowConfig, WindowSize};
+    use crate::persistence::{ClipboardConfig, DictationConfig, WindowConfig, WindowSize};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},
@@ -151,11 +173,18 @@ mod tests {
                 open_translator: "Alt+W".to_string(),
                 translate_selection: "Command+Shift+Y".to_string(),
                 open_clipboard: "Command+Shift+V".to_string(),
+                record_dictation: "Command+Shift+Space".to_string(),
                 quit_app: "Command+Shift+U".to_string(),
             },
             clipboard: ClipboardConfig {
                 capacity: 42,
                 panel_page_size: 7,
+            },
+            dictation: DictationConfig {
+                provider: "elevenlabs".to_string(),
+                api_key: "secret".to_string(),
+                model_id: "scribe_v2".to_string(),
+                language_code: Some("zh".to_string()),
             },
         };
         persistence::save_config_to_path(&path, &config)
@@ -169,6 +198,7 @@ mod tests {
         assert_eq!(get_font_size_plus(), 2.0);
         assert_eq!(get_hotkey_config(), config.hotkey);
         assert_eq!(get_clipboard_config(), config.clipboard);
+        assert_eq!(get_dictation_config(), config.dictation);
 
         let _ = fs::remove_file(path);
     }
@@ -190,6 +220,10 @@ mod tests {
                 capacity: 25,
                 panel_page_size: 4,
             },
+            dictation: DictationConfig {
+                api_key: "original-key".to_string(),
+                ..Default::default()
+            },
         };
         persistence::save_config_to_path(&path, &original)
             .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
@@ -198,6 +232,7 @@ mod tests {
             open_translator: "Alt+W".to_string(),
             translate_selection: "Command+Shift+T".to_string(),
             open_clipboard: "Command+Shift+V".to_string(),
+            record_dictation: "Command+Shift+Space".to_string(),
             quit_app: "Command+Shift+D".to_string(),
         };
         save_hotkey_config_to_path(&path, &hotkey)
@@ -209,6 +244,7 @@ mod tests {
         assert_eq!(saved.window, original.window);
         assert_eq!(saved.hotkey, hotkey);
         assert_eq!(saved.clipboard, original.clipboard);
+        assert_eq!(saved.dictation, original.dictation);
 
         let _ = fs::remove_file(path);
     }
@@ -230,11 +266,16 @@ mod tests {
                 open_translator: "Alt+Q".to_string(),
                 translate_selection: "Command+Shift+T".to_string(),
                 open_clipboard: "Command+Shift+V".to_string(),
+                record_dictation: "Command+Shift+Space".to_string(),
                 quit_app: "Command+Shift+D".to_string(),
             },
             clipboard: ClipboardConfig {
                 capacity: 50,
                 panel_page_size: 5,
+            },
+            dictation: DictationConfig {
+                api_key: "original-key".to_string(),
+                ..Default::default()
             },
         };
         persistence::save_config_to_path(&path, &original)
@@ -251,6 +292,7 @@ mod tests {
         assert_eq!(saved.window.font_size_plus, original.window.font_size_plus);
         assert_eq!(saved.hotkey, original.hotkey);
         assert_eq!(saved.clipboard, original.clipboard);
+        assert_eq!(saved.dictation, original.dictation);
 
         let _ = fs::remove_file(path);
     }
@@ -272,6 +314,10 @@ mod tests {
                 capacity: 10,
                 panel_page_size: 3,
             },
+            dictation: DictationConfig {
+                api_key: "original-key".to_string(),
+                ..Default::default()
+            },
         };
         persistence::save_config_to_path(&path, &original)
             .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
@@ -288,11 +334,62 @@ mod tests {
         assert_eq!(saved.api, original.api);
         assert_eq!(saved.window, original.window);
         assert_eq!(saved.hotkey, original.hotkey);
+        assert_eq!(saved.dictation, original.dictation);
         assert_eq!(
             saved.clipboard,
             ClipboardConfig {
                 capacity: ClipboardConfig::MIN_CAPACITY,
                 panel_page_size: ClipboardConfig::MAX_PANEL_PAGE_SIZE,
+            }
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_dictation_config_updates_only_dictation_fields() {
+        let path = temp_config_path();
+        let original = AppConfig {
+            api: "https://example.test".to_string(),
+            window: WindowConfig {
+                theme: "light".to_string(),
+                ..Default::default()
+            },
+            hotkey: HotkeyConfig {
+                open_translator: "Alt+Q".to_string(),
+                ..Default::default()
+            },
+            clipboard: ClipboardConfig {
+                capacity: 10,
+                panel_page_size: 3,
+            },
+            dictation: DictationConfig::default(),
+        };
+        persistence::save_config_to_path(&path, &original)
+            .unwrap_or_else(|err| panic!("failed to save original config: {err}"));
+
+        let dictation = DictationConfig {
+            provider: " elevenlabs ".to_string(),
+            api_key: " test-key ".to_string(),
+            model_id: " ".to_string(),
+            language_code: Some(" zh ".to_string()),
+        };
+        save_dictation_config_to_path(&path, dictation)
+            .unwrap_or_else(|err| panic!("failed to save dictation config: {err}"));
+
+        let saved = persistence::load_config_from_path(&path)
+            .unwrap_or_else(|err| panic!("failed to read saved config: {err}"));
+        assert_eq!(saved.api, original.api);
+        assert_eq!(saved.window, original.window);
+        assert_eq!(saved.hotkey, original.hotkey);
+        assert_eq!(saved.clipboard, original.clipboard);
+        assert_eq!(
+            saved.dictation,
+            DictationConfig {
+                provider: "elevenlabs".to_string(),
+                api_key: "test-key".to_string(),
+                model_id: DictationConfig::DEFAULT_MODEL_ID.to_string(),
+                language_code: Some("zh".to_string()),
             }
         );
 

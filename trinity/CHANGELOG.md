@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-18
+
+### Added
+- Daemon integration for hold-to-record dictation hotkey events.
+- Background dictation flow that records on hotkey press, transcribes on release, and injects recognized text into the focused input.
+
 ## 2026-05-16
 
 ### Changed

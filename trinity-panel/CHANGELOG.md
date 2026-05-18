@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-18
+
+### Added
+- Voice service settings for ElevenLabs API key, model, language code, and hold-to-record shortcut.
+- Dictation shortcut validation and daemon hotkey reload from the voice settings tab.
+
 ## 2026-05-15
 
 ### Added

@@ -19,6 +19,8 @@ pub struct AppConfig {
     pub hotkey: HotkeyConfig,
     #[serde(default)]
     pub clipboard: ClipboardConfig,
+    #[serde(default)]
+    pub dictation: DictationConfig,
 }
 
 impl Default for AppConfig {
@@ -28,6 +30,48 @@ impl Default for AppConfig {
             window: WindowConfig::default(),
             hotkey: HotkeyConfig::default(),
             clipboard: ClipboardConfig::default(),
+            dictation: DictationConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DictationConfig {
+    #[serde(default = "default_dictation_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_dictation_model_id")]
+    pub model_id: String,
+    #[serde(default)]
+    pub language_code: Option<String>,
+}
+
+impl DictationConfig {
+    pub const DEFAULT_PROVIDER: &'static str = "elevenlabs";
+    pub const DEFAULT_MODEL_ID: &'static str = "scribe_v2";
+
+    #[must_use]
+    pub fn normalized(self) -> Self {
+        Self {
+            provider: normalize_non_empty(&self.provider, Self::DEFAULT_PROVIDER),
+            api_key: self.api_key.trim().to_string(),
+            model_id: normalize_non_empty(&self.model_id, Self::DEFAULT_MODEL_ID),
+            language_code: self
+                .language_code
+                .map(|code| code.trim().to_string())
+                .filter(|code| !code.is_empty()),
+        }
+    }
+}
+
+impl Default for DictationConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_dictation_provider(),
+            api_key: String::new(),
+            model_id: default_dictation_model_id(),
+            language_code: None,
         }
     }
 }
@@ -190,6 +234,23 @@ fn default_clipboard_panel_page_size() -> usize {
     ClipboardConfig::DEFAULT_PANEL_PAGE_SIZE
 }
 
+fn default_dictation_provider() -> String {
+    DictationConfig::DEFAULT_PROVIDER.to_string()
+}
+
+fn default_dictation_model_id() -> String {
+    DictationConfig::DEFAULT_MODEL_ID.to_string()
+}
+
+fn normalize_non_empty(value: &str, default: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        default.to_string()
+    } else {
+        value.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,12 +293,14 @@ mod tests {
         assert_eq!(config.window.size, WindowSize::default());
         assert_eq!(config.hotkey, HotkeyConfig::default());
         assert_eq!(config.clipboard, ClipboardConfig::default());
+        assert_eq!(config.dictation, DictationConfig::default());
 
         let saved = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("failed to read rewritten config: {err}"));
         assert!(saved.contains("open_translator"));
         assert!(saved.contains("open_clipboard"));
         assert!(saved.contains("clipboard"));
+        assert!(saved.contains("dictation"));
         assert!(saved.contains("font_size_plus"));
 
         let _ = fs::remove_file(path);

@@ -13,10 +13,10 @@ use egui::{Context, RichText};
 use egui_dock::{DockArea, DockState, TabViewer};
 use egui_theme_switch::ThemeSwitch;
 use trinity_util::{
-    ClipboardConfig,
+    ClipboardConfig, DictationConfig,
     cfg::{
-        get_api, get_clipboard_config, get_theme, save_basic_config, save_clipboard_config,
-        save_hotkey_config, settings_path,
+        get_api, get_clipboard_config, get_dictation_config, get_theme, save_basic_config,
+        save_clipboard_config, save_dictation_config, save_hotkey_config, settings_path,
     },
     font::install_fonts,
     hotkey::HotkeyConfig,
@@ -81,6 +81,8 @@ pub struct PanelApp {
     pending_hotkey_config: Option<HotkeyConfig>,
     clipboard_config: ClipboardConfig,
     clipboard_status: Option<Result<String, String>>,
+    dictation_config: DictationConfig,
+    dictation_status: Option<Result<String, String>>,
 }
 
 impl PanelApp {
@@ -147,6 +149,8 @@ impl PanelApp {
             pending_hotkey_config: None,
             clipboard_config: get_clipboard_config(),
             clipboard_status: None,
+            dictation_config: get_dictation_config(),
+            dictation_status: None,
         }
     }
 
@@ -197,6 +201,7 @@ impl PanelApp {
             &mut self.hotkey_config.translate_selection,
         );
         hotkey_row(ui, "打开剪切板", &mut self.hotkey_config.open_clipboard);
+        hotkey_row(ui, "按住语音输入", &mut self.hotkey_config.record_dictation);
         hotkey_row(ui, "退出 Trinity", &mut self.hotkey_config.quit_app);
 
         ui.add_space(8.0);
@@ -264,10 +269,60 @@ impl PanelApp {
         self.show_basic_actions(ui);
     }
 
-    fn show_voice_tab(ui: &mut egui::Ui) {
-        section_title(ui, "语音服务");
-        readonly_row(ui, "模块状态", "待实现");
-        readonly_row(ui, "配置写入", "暂未开放");
+    fn show_voice_tab(&mut self, ui: &mut egui::Ui) {
+        section_title(ui, "ElevenLabs 语音输入");
+        readonly_row(ui, "服务商", "elevenlabs");
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 20.0], egui::Label::new("API Key"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.dictation_config.api_key)
+                    .password(true)
+                    .desired_width(260.0),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 20.0], egui::Label::new("模型"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.dictation_config.model_id)
+                    .hint_text(DictationConfig::DEFAULT_MODEL_ID)
+                    .desired_width(260.0),
+            );
+        });
+        let mut language_code = self
+            .dictation_config
+            .language_code
+            .clone()
+            .unwrap_or_default();
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 20.0], egui::Label::new("语言代码"));
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut language_code)
+                        .hint_text("自动识别")
+                        .desired_width(260.0),
+                )
+                .changed()
+            {
+                self.dictation_config.language_code =
+                    Some(language_code.trim().to_string()).filter(|code| !code.is_empty());
+            }
+        });
+        hotkey_row(ui, "按住录音", &mut self.hotkey_config.record_dictation);
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button("保存语音设置").clicked() {
+                self.save_voice_settings();
+            }
+            if ui.button("恢复默认").clicked() {
+                self.dictation_config = DictationConfig::default();
+                self.hotkey_config.record_dictation =
+                    HotkeyConfig::DEFAULT_RECORD_DICTATION.to_string();
+                self.dictation_status = None;
+            }
+        });
+
+        show_status(ui, &self.dictation_status);
     }
 
     fn show_basic_actions(&mut self, ui: &mut egui::Ui) {
@@ -356,6 +411,28 @@ impl PanelApp {
         }
     }
 
+    fn save_voice_settings(&mut self) {
+        self.dictation_config = self.dictation_config.clone().normalized();
+        if self.dictation_config.api_key.is_empty() {
+            self.dictation_status = Some(Err("ElevenLabs API Key 不能为空。".to_string()));
+            return;
+        }
+        if let Err(err) = self.hotkey_config.validate() {
+            self.dictation_status = Some(Err(err.to_string()));
+            return;
+        }
+
+        match save_dictation_config(self.dictation_config.clone()) {
+            Ok(()) => {
+                self.dictation_status = Some(Ok("语音设置已保存。".to_string()));
+                self.save_hotkeys();
+            }
+            Err(err) => {
+                self.dictation_status = Some(Err(format!("保存语音设置失败: {err}")));
+            }
+        }
+    }
+
     fn poll_hotkey_reload_result(&mut self) {
         let Some(result_rx) = &self.hotkey_result_rx else {
             return;
@@ -406,7 +483,7 @@ impl TabViewer for PanelTabViewer<'_> {
                     ControlPanelTab::Hotkeys => self.app.show_hotkeys_tab(ui),
                     ControlPanelTab::Clipboard => self.app.show_clipboard_tab(ui),
                     ControlPanelTab::TranslationService => self.app.show_translation_tab(ui),
-                    ControlPanelTab::VoiceService => PanelApp::show_voice_tab(ui),
+                    ControlPanelTab::VoiceService => self.app.show_voice_tab(ui),
                 }
             });
     }

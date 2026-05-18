@@ -23,12 +23,16 @@ egui = "0.34"
 egui-theme-switch = "0.7.0"
 egui_dock = "0.19.1"
 cfg-if = "1"
+cpal = "0.16"
 deepl = { package = "deepl-api-client", version = "0.2" }
+enigo = "0.6.1"
+hound = "3.5"
 log = "0.4"
 rdev = "0.5"
 cli-clipboard = "0.4"
 global-hotkey = "0.8"
 image = "0.25"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 trinity-util = { path = "trinity-util" }

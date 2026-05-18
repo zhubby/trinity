@@ -14,11 +14,15 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use crate::tray::TrayEvent;
 use trinity_clipboard::{ClipboardManager, ClipboardUiAction};
+use trinity_dictation::{DictationManager, DictationStatus};
 use trinity_panel::{HotkeyReloadRequest, PanelApp};
 use trinity_util::{
-    cfg::{get_clipboard_config, get_theme, get_window_size},
+    cfg::{get_clipboard_config, get_dictation_config, get_theme, get_window_size},
     font::install_fonts,
-    hotkey::{HotkeyAction, HotkeyService},
+    hotkey::{
+        HotkeyAction, HotkeyEvent, HotkeyEventState, HotkeyService,
+        install_global_hotkey_event_forwarder,
+    },
 };
 
 const WINDOW_RESIZE_HIT_ZONE: f32 = 8.0;
@@ -62,10 +66,14 @@ pub struct DaemonApp {
     hotkey_start_attempted: bool,
     /// Channel for daemon-side hotkey reload handling
     hotkey_reload_rx: mpsc::Receiver<HotkeyReloadRequest>,
+    /// Sender captured by the global-hotkey event forwarder.
+    hotkey_event_tx: mpsc::Sender<HotkeyEvent>,
     /// Channel for global-hotkey event handler actions.
-    hotkey_event_rx: mpsc::Receiver<HotkeyAction>,
+    hotkey_event_rx: mpsc::Receiver<HotkeyEvent>,
     /// Text clipboard history manager.
     clipboard_manager: ClipboardManager,
+    /// Voice dictation manager.
+    dictation_manager: DictationManager,
     /// Whether the clipboard picker viewport is currently visible
     clipboard_visible: bool,
     /// Last requested clipboard picker position in monitor coordinates.
@@ -91,7 +99,8 @@ impl DaemonApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         hotkey_service: Option<HotkeyService>,
-        hotkey_event_rx: mpsc::Receiver<HotkeyAction>,
+        hotkey_event_tx: mpsc::Sender<HotkeyEvent>,
+        hotkey_event_rx: mpsc::Receiver<HotkeyEvent>,
     ) -> Self {
         install_fonts(&cc.egui_ctx);
 
@@ -111,6 +120,7 @@ impl DaemonApp {
 
         let panel_app = PanelApp::new_from_context(&cc.egui_ctx, hotkey_reload_tx.clone());
         let clipboard_manager = ClipboardManager::new(get_clipboard_config());
+        let dictation_manager = DictationManager::new(get_dictation_config());
 
         Self {
             tray_rx,
@@ -128,8 +138,10 @@ impl DaemonApp {
             hotkey_start_attempted: true,
             hotkey_service,
             hotkey_reload_rx,
+            hotkey_event_tx,
             hotkey_event_rx,
             clipboard_manager,
+            dictation_manager,
             clipboard_visible: false,
             clipboard_popup_position: None,
         }
@@ -196,7 +208,7 @@ impl App for DaemonApp {
         self.ensure_hotkeys_started();
         self.clipboard_manager.start_monitoring();
         self.process_hotkey_reload_requests();
-        self.process_hotkey_actions(&ctx);
+        self.process_hotkey_events(&ctx);
 
         self.process_translation_popup_events();
         self.show_translator_viewport(&ctx);
@@ -541,6 +553,12 @@ impl DaemonApp {
 
             match result {
                 Ok(()) => {
+                    if let Err(err) = install_global_hotkey_event_forwarder(
+                        &request.config,
+                        self.hotkey_event_tx.clone(),
+                    ) {
+                        warn!("failed to update global hotkey event forwarder: {err}");
+                    }
                     let _ = request.result_tx.send(Ok(()));
                 }
                 Err(err) => {
@@ -551,29 +569,45 @@ impl DaemonApp {
         }
     }
 
-    fn process_hotkey_actions(&mut self, ctx: &Context) {
-        let mut actions = self
+    fn process_hotkey_events(&mut self, ctx: &Context) {
+        let mut events = self
             .hotkey_service
             .as_ref()
-            .map(HotkeyService::poll_actions)
+            .map(HotkeyService::poll_events)
             .unwrap_or_default();
-        while let Ok(action) = self.hotkey_event_rx.try_recv() {
-            info!("global hotkey event handler triggered {action:?}");
-            actions.push(action);
+        while let Ok(event) = self.hotkey_event_rx.try_recv() {
+            info!("global hotkey event handler triggered {event:?}");
+            events.push(event);
         }
 
-        for action in actions {
-            match action {
-                HotkeyAction::OpenTranslator => {
+        for event in events {
+            match (event.action, event.state) {
+                (HotkeyAction::DictationRecord, HotkeyEventState::Pressed) => {
+                    self.dictation_manager.reload_config(get_dictation_config());
+                    match self.dictation_manager.start_recording() {
+                        Ok(()) => info!("dictation recording started"),
+                        Err(err) => warn!("failed to start dictation recording: {err}"),
+                    }
+                }
+                (HotkeyAction::DictationRecord, HotkeyEventState::Released) => {
+                    match self.dictation_manager.stop_and_transcribe() {
+                        Ok(()) => info!("dictation recording stopped"),
+                        Err(err) => warn!("failed to stop dictation recording: {err}"),
+                    }
+                }
+                (_, HotkeyEventState::Released) => {}
+                (HotkeyAction::OpenTranslator, HotkeyEventState::Pressed) => {
                     self.translator_popup_visible = true;
                     ctx.request_repaint();
                 }
-                HotkeyAction::TranslateSelection => trigger_translate_selection(
-                    ctx.clone(),
-                    self.translator_state.clone(),
-                    self.translator_popup_tx.clone(),
-                ),
-                HotkeyAction::OpenClipboard => {
+                (HotkeyAction::TranslateSelection, HotkeyEventState::Pressed) => {
+                    trigger_translate_selection(
+                        ctx.clone(),
+                        self.translator_state.clone(),
+                        self.translator_popup_tx.clone(),
+                    )
+                }
+                (HotkeyAction::OpenClipboard, HotkeyEventState::Pressed) => {
                     self.clipboard_manager.start_monitoring();
                     let position = clipboard_popup_position(ctx);
                     info!("opening clipboard overlay at {position:?}");
@@ -587,10 +621,14 @@ impl DaemonApp {
                     ctx.send_viewport_cmd(ViewportCommand::Focus);
                     ctx.request_repaint();
                 }
-                HotkeyAction::QuitApp => {
+                (HotkeyAction::QuitApp, HotkeyEventState::Pressed) => {
                     self.exit_app(ctx);
                 }
             }
+        }
+
+        if let DictationStatus::Error(message) = self.dictation_manager.status() {
+            warn!("dictation status error: {message}");
         }
     }
 }

@@ -17,7 +17,20 @@ pub enum HotkeyAction {
     OpenTranslator,
     TranslateSelection,
     OpenClipboard,
+    DictationRecord,
     QuitApp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HotkeyEventState {
+    Pressed,
+    Released,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HotkeyEvent {
+    pub action: HotkeyAction,
+    pub state: HotkeyEventState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +41,8 @@ pub struct HotkeyConfig {
     pub translate_selection: String,
     #[serde(default = "default_open_clipboard")]
     pub open_clipboard: String,
+    #[serde(default = "default_record_dictation")]
+    pub record_dictation: String,
     #[serde(default = "default_quit_app")]
     pub quit_app: String,
 }
@@ -43,12 +58,16 @@ impl HotkeyConfig {
     #[cfg(not(target_os = "macos"))]
     pub const DEFAULT_OPEN_CLIPBOARD: &'static str = "Control+Shift+V";
     #[cfg(target_os = "macos")]
+    pub const DEFAULT_RECORD_DICTATION: &'static str = "Command+Shift+Space";
+    #[cfg(not(target_os = "macos"))]
+    pub const DEFAULT_RECORD_DICTATION: &'static str = "Control+Shift+Space";
+    #[cfg(target_os = "macos")]
     pub const DEFAULT_QUIT_APP: &'static str = "Command+Shift+D";
     #[cfg(not(target_os = "macos"))]
     pub const DEFAULT_QUIT_APP: &'static str = "Control+Shift+D";
 
     #[must_use]
-    pub fn entries(&self) -> [(HotkeyAction, &str); 4] {
+    pub fn entries(&self) -> [(HotkeyAction, &str); 5] {
         [
             (HotkeyAction::OpenTranslator, self.open_translator.as_str()),
             (
@@ -56,6 +75,10 @@ impl HotkeyConfig {
                 self.translate_selection.as_str(),
             ),
             (HotkeyAction::OpenClipboard, self.open_clipboard.as_str()),
+            (
+                HotkeyAction::DictationRecord,
+                self.record_dictation.as_str(),
+            ),
             (HotkeyAction::QuitApp, self.quit_app.as_str()),
         ]
     }
@@ -87,6 +110,10 @@ fn default_open_clipboard() -> String {
     HotkeyConfig::DEFAULT_OPEN_CLIPBOARD.to_string()
 }
 
+fn default_record_dictation() -> String {
+    HotkeyConfig::DEFAULT_RECORD_DICTATION.to_string()
+}
+
 fn default_quit_app() -> String {
     HotkeyConfig::DEFAULT_QUIT_APP.to_string()
 }
@@ -97,6 +124,7 @@ impl Default for HotkeyConfig {
             open_translator: Self::DEFAULT_OPEN_TRANSLATOR.to_string(),
             translate_selection: Self::DEFAULT_TRANSLATE_SELECTION.to_string(),
             open_clipboard: Self::DEFAULT_OPEN_CLIPBOARD.to_string(),
+            record_dictation: Self::DEFAULT_RECORD_DICTATION.to_string(),
             quit_app: Self::DEFAULT_QUIT_APP.to_string(),
         }
     }
@@ -188,16 +216,26 @@ impl HotkeyService {
 
     #[must_use]
     pub fn poll_actions(&self) -> Vec<HotkeyAction> {
+        self.poll_events()
+            .into_iter()
+            .filter(|event| event.state == HotkeyEventState::Pressed)
+            .map(|event| event.action)
+            .collect()
+    }
+
+    #[must_use]
+    pub fn poll_events(&self) -> Vec<HotkeyEvent> {
         let receiver = GlobalHotKeyEvent::receiver();
-        let mut actions = Vec::new();
+        let mut events = Vec::new();
         while let Ok(event) = receiver.try_recv() {
-            if event.state() == HotKeyState::Pressed
-                && let Some(action) = self.action_by_id.get(&event.id())
-            {
-                actions.push(*action);
+            if let Some(action) = self.action_by_id.get(&event.id()).copied() {
+                events.push(HotkeyEvent {
+                    action,
+                    state: hotkey_event_state(event.state()),
+                });
             }
         }
-        actions
+        events
     }
 
     fn register(&mut self, config: &HotkeyConfig) -> Result<(), HotkeyRegistrationError> {
@@ -252,7 +290,7 @@ impl HotkeyService {
 
 pub fn install_global_hotkey_event_forwarder(
     config: &HotkeyConfig,
-    tx: mpsc::Sender<HotkeyAction>,
+    tx: mpsc::Sender<HotkeyEvent>,
 ) -> Result<(), HotkeyRegistrationError> {
     let actions = parse_hotkeys(config)?
         .into_iter()
@@ -268,21 +306,28 @@ pub fn install_global_hotkey_event_forwarder(
             event.id(),
             event.state()
         );
-        if event.state() != HotKeyState::Released {
-            return;
-        }
-
         let action = GLOBAL_EVENT_ACTIONS
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .get(&event.id())
             .copied();
         if let Some(action) = action {
-            tx.send(action).ok();
+            tx.send(HotkeyEvent {
+                action,
+                state: hotkey_event_state(event.state()),
+            })
+            .ok();
         }
     }));
 
     Ok(())
+}
+
+fn hotkey_event_state(state: HotKeyState) -> HotkeyEventState {
+    match state {
+        HotKeyState::Pressed => HotkeyEventState::Pressed,
+        HotKeyState::Released => HotkeyEventState::Released,
+    }
 }
 
 impl Drop for HotkeyService {
@@ -351,12 +396,29 @@ mod tests {
             open_translator: "Alt+Q".to_string(),
             translate_selection: "Alt+Q".to_string(),
             open_clipboard: "Command+Shift+V".to_string(),
+            record_dictation: "Command+Shift+Space".to_string(),
             quit_app: "Command+Shift+D".to_string(),
         };
 
         assert!(matches!(
             config.validate(),
             Err(HotkeyRegistrationError::Duplicate { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_dictation_hotkey_is_rejected() {
+        let config = HotkeyConfig {
+            record_dictation: HotkeyConfig::DEFAULT_OPEN_TRANSLATOR.to_string(),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            config.validate(),
+            Err(HotkeyRegistrationError::Duplicate {
+                action: HotkeyAction::DictationRecord,
+                ..
+            })
         ));
     }
 }

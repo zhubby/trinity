@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-18
+
+### Added
+- Dictation service configuration for ElevenLabs provider, API key, model, and language code.
+- Global hotkey support for press/release events and hold-to-record dictation.
+
 ## 2026-05-15
 
 ### Added

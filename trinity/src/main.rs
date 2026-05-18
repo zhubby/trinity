@@ -20,7 +20,7 @@ use clap::Parser;
 use log::LevelFilter;
 use trinity_util::{
     cfg::get_hotkey_config,
-    hotkey::{HotkeyAction, HotkeyService, install_global_hotkey_event_forwarder},
+    hotkey::{HotkeyEvent, HotkeyService, install_global_hotkey_event_forwarder},
 };
 
 /// Trinity — Desktop AI trifecta assistant
@@ -67,11 +67,12 @@ fn main() {
 
     // Launch the daemon — control panel root viewport + system tray
     let hotkey_config = get_hotkey_config();
-    let (hotkey_event_tx, hotkey_event_rx) = std::sync::mpsc::channel::<HotkeyAction>();
+    let (hotkey_event_tx, hotkey_event_rx) = std::sync::mpsc::channel::<HotkeyEvent>();
     let hotkey_service = match HotkeyService::new(&hotkey_config) {
         Ok(service) => {
             log::info!("hotkeys initialized before eframe startup");
-            if let Err(err) = install_global_hotkey_event_forwarder(&hotkey_config, hotkey_event_tx)
+            if let Err(err) =
+                install_global_hotkey_event_forwarder(&hotkey_config, hotkey_event_tx.clone())
             {
                 log::warn!("failed to install global hotkey event forwarder: {err}");
             }
@@ -82,12 +83,13 @@ fn main() {
             None
         }
     };
-    launch_daemon(hotkey_service, hotkey_event_rx);
+    launch_daemon(hotkey_service, hotkey_event_tx, hotkey_event_rx);
 }
 
 fn launch_daemon(
     hotkey_service: Option<HotkeyService>,
-    hotkey_event_rx: std::sync::mpsc::Receiver<HotkeyAction>,
+    hotkey_event_tx: std::sync::mpsc::Sender<HotkeyEvent>,
+    hotkey_event_rx: std::sync::mpsc::Receiver<HotkeyEvent>,
 ) {
     let (width, height) = trinity_util::cfg::get_window_size();
     // The root viewport is the borderless control panel. Close hides it
@@ -112,6 +114,7 @@ fn launch_daemon(
             Ok(Box::new(daemon::DaemonApp::new(
                 cc,
                 hotkey_service,
+                hotkey_event_tx,
                 hotkey_event_rx,
             )))
         }),
